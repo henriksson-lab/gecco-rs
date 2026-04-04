@@ -4,10 +4,19 @@ version = "0.1.0"
 edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
+autobenches = false
 
 [[bin]]
 name = "gecco"
 path = "src/main.rs"
+
+[[bin]]
+name = "bench_pipeline"
+path = "benches/pipeline.rs"
+
+[[bin]]
+name = "bench_full"
+path = "benches/bench_full.rs"
 
 [dependencies]
 # Core algorithm
@@ -49,4 +58,4 @@ regex-lite = "0.1"
 orphos-core = "0.1"
 
 # HMMER (local)
-hmmer = { path = "/home/mahogny/github/claude/hmmer-pure-rs/crates/hmmer" }
+hmmer = { path = "/home/mahogny/github/claude/hmmer-pure-rs" }

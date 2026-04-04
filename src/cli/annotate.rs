@@ -2,7 +2,14 @@
 
 use std::path::PathBuf;
 
+use anyhow::{Context, Result};
 use clap::Args;
+use log::info;
+
+use crate::hmmer::{self, DomainAnnotator, PyHMMER};
+use crate::io::genbank;
+use crate::io::tables::{FeatureTable, GeneTable};
+use crate::orf::{ProdigalFinder, ORFFinder};
 
 #[derive(Args)]
 pub struct AnnotateArgs {
@@ -52,16 +59,96 @@ pub struct AnnotateArgs {
 }
 
 impl AnnotateArgs {
-    pub fn execute(&self) -> anyhow::Result<()> {
-        log::info!("Annotating domains in {:?}", self.genome);
-        log::info!("Output directory: {:?}", self.output_dir);
+    pub fn execute(&self) -> Result<()> {
+        let base = self
+            .genome
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        std::fs::create_dir_all(&self.output_dir)?;
 
         // 1. Load sequences
-        // 2. Find genes (Prodigal or CDSFinder)
-        // 3. Annotate domains (HMMER)
-        // 4. Filter domains
-        // 5. Write gene + feature tables
+        info!("Loading sequences from {:?}", self.genome);
+        let records = genbank::read_sequences(&self.genome)
+            .with_context(|| format!("loading sequences from {:?}", self.genome))?;
+        info!("Loaded {} sequence(s)", records.len());
 
-        anyhow::bail!("annotate subcommand not yet fully wired")
+        // 2. Find genes
+        info!("Finding genes");
+        let finder = ProdigalFinder {
+            metagenome: true,
+            mask: self.mask,
+            cpus: self.jobs,
+            ..Default::default()
+        };
+        let mut genes = finder.find_genes(&records)?;
+        info!("Found {} genes", genes.len());
+
+        if genes.is_empty() {
+            log::warn!("No genes found");
+            if self.force_tsv {
+                GeneTable::write_from_genes(
+                    std::fs::File::create(
+                        self.output_dir.join(format!("{}.genes.tsv", base)),
+                    )?,
+                    &[],
+                )?;
+                FeatureTable::write_from_genes(
+                    std::fs::File::create(
+                        self.output_dir.join(format!("{}.features.tsv", base)),
+                    )?,
+                    &[],
+                )?;
+            }
+            return Ok(());
+        }
+
+        // 3. Annotate domains
+        info!("Annotating protein domains");
+        let interpro = super::run::load_interpro()?;
+        let hmms = super::run::load_hmm_configs(&self.hmm)?;
+        for hmm_config in &hmms {
+            let annotator = PyHMMER::new(hmm_config.clone());
+            annotator.run(&mut genes, &interpro, None)?;
+        }
+
+        let domain_count: usize = genes.iter().map(|g| g.protein.domains.len()).sum();
+        info!("Found {} domains", domain_count);
+
+        // 4. Filter
+        if self.disentangle {
+            for gene in &mut genes {
+                hmmer::disentangle(gene);
+            }
+        }
+        if let Some(e) = self.e_filter {
+            hmmer::filter_by_evalue(&mut genes, e);
+        }
+        hmmer::filter_by_pvalue(&mut genes, self.p_filter);
+
+        // Sort
+        genes.sort_by(|a, b| {
+            a.source_id
+                .cmp(&b.source_id)
+                .then(a.start.cmp(&b.start))
+        });
+
+        // 5. Write output
+        info!("Writing results to {:?}", self.output_dir);
+        GeneTable::write_from_genes(
+            std::fs::File::create(self.output_dir.join(format!("{}.genes.tsv", base)))?,
+            &genes,
+        )?;
+        FeatureTable::write_from_genes(
+            std::fs::File::create(
+                self.output_dir.join(format!("{}.features.tsv", base)),
+            )?,
+            &genes,
+        )?;
+
+        info!("Done");
+        Ok(())
     }
 }

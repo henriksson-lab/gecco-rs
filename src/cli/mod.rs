@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 pub mod annotate;
+pub mod build_data;
 pub mod convert;
 pub mod cv;
 pub mod predict;
@@ -38,4 +39,6 @@ pub enum Commands {
     Cv(cv::CvArgs),
     /// Convert between output formats.
     Convert(convert::ConvertArgs),
+    /// Download HMM databases and build data files.
+    BuildData(build_data::BuildDataArgs),
 }

@@ -14,6 +14,7 @@ use super::CrfModel;
 ///
 /// Stores the raw model bytes (crfs::Model borrows them) plus extracted
 /// weights for our own forward-backward marginal computation.
+#[derive(Clone)]
 pub struct CrfSuiteModel {
     /// Raw model file bytes (crfs::Model borrows from this).
     model_data: Vec<u8>,

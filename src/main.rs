@@ -24,5 +24,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Train(args) => args.execute(),
         Commands::Cv(args) => args.execute(),
         Commands::Convert(args) => args.execute(),
+        Commands::BuildData(args) => args.execute(),
     }
 }

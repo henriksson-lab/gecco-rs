@@ -135,15 +135,28 @@ impl PyHMMER {
     }
 
     /// Load and optionally filter HMM profiles from the database file.
+    /// Supports text `.hmm`, binary `.h3m`, and gzipped variants.
     fn load_hmms(&self) -> Result<Vec<hmmer::core::Hmm>> {
+        let path_str = self.hmm.path.to_string_lossy();
+
+        // Try binary .h3m format first
+        if path_str.ends_with(".h3m") {
+            let hmms = hmmer::io::binary::read_all_pressed(&path_str)
+                .map_err(|e| anyhow::anyhow!("reading binary HMM file: {}", e))?;
+            return self.filter_hmms(hmms);
+        }
+
         let file = std::fs::File::open(&self.hmm.path)
             .with_context(|| format!("opening HMM file: {}", self.hmm.path.display()))?;
         let mut reader = std::io::BufReader::new(file);
 
-        // Try reading as gzip first (magic bytes)
+        // Try reading as gzip or text
         let hmms = self.read_hmms_maybe_compressed(&mut reader)?;
 
-        // Filter by whitelist if set
+        self.filter_hmms(hmms)
+    }
+
+    fn filter_hmms(&self, hmms: Vec<hmmer::core::Hmm>) -> Result<Vec<hmmer::core::Hmm>> {
         let filtered: Vec<hmmer::core::Hmm> = match &self.whitelist {
             Some(wl) => hmms
                 .into_iter()
@@ -153,7 +166,6 @@ impl PyHMMER {
                             let relabeled = self.hmm.relabel(acc);
                             wl.contains(&relabeled)
                         }
-                        // Keep HMMs without accession (they pass by default)
                         None => true,
                     }
                 })
@@ -233,97 +245,93 @@ impl DomainAnnotator for PyHMMER {
         let z_database = self.hmm.size.unwrap_or(total_hmms) as f64;
         let z_seqs = seqs.len() as f64;
 
-        // Step 3: Run hmmsearch for each HMM profile against all sequences
+        // Step 3: Run hmmsearch in parallel over HMM profiles.
+        // Each HMM is searched against all sequences independently.
+        // Results collected as (gene_idx, Domain) pairs, then merged.
         let config = hmmer::pipeline::PipelineConfig::default();
+        let hmm_id = &self.hmm.id;
+        let hmm_meta = &self.hmm;
 
-        for (hmm_idx, hmm_profile) in hmms.iter().enumerate() {
-            let (hits, _stats) = hmmer::pipeline::hmmsearch(hmm_profile, &seqs, &config);
+        use rayon::prelude::*;
 
-            // Get accession (relabeled) for this HMM
-            let raw_acc = hmm_profile
-                .acc
-                .as_deref()
-                .unwrap_or(&hmm_profile.name);
-            let accession = self.hmm.relabel(raw_acc);
+        // Parallel search over all HMMs
+        let all_domains: Vec<(usize, Domain)> = hmms
+            .par_iter()
+            .flat_map(|hmm_profile| {
+                let (hits, _stats) = hmmer::pipeline::hmmsearch(hmm_profile, &seqs, &config);
 
-            // Look up InterPro metadata
-            let go_terms = interpro.go_terms_for(&accession);
-            let go_functions = interpro.go_functions_for(&accession);
-            let entry = interpro.get(&accession);
+                let raw_acc = hmm_profile
+                    .acc
+                    .as_deref()
+                    .unwrap_or(&hmm_profile.name);
+                let accession = hmm_meta.relabel(raw_acc);
 
-            // Step 4: Map hits back to genes
-            for hit in &hits {
-                let gene_idx: usize = hit
-                    .name
-                    .parse()
-                    .with_context(|| format!("parsing gene index from hit name '{}'", hit.name))?;
+                let go_terms = interpro.go_terms_for(&accession);
+                let go_functions = interpro.go_functions_for(&accession);
+                let entry = interpro.get(&accession);
 
-                if gene_idx >= genes.len() {
-                    continue;
-                }
-
-                for dom in &hit.domains {
-                    debug_assert!(dom.ienv <= dom.jenv);
-                    debug_assert!(dom.ievalue >= 0.0);
-
-                    // Recompute ievalue using database Z instead of sequence count Z.
-                    // Original: ievalue = dom_pval * z_seqs
-                    // Corrected: ievalue = dom_pval * z_database
-                    let ievalue_corrected = if z_seqs > 0.0 {
-                        dom.ievalue / z_seqs * z_database
-                    } else {
-                        dom.ievalue
+                let mut results = Vec::new();
+                for hit in &hits {
+                    let gene_idx: usize = match hit.name.parse() {
+                        Ok(idx) => idx,
+                        Err(_) => continue,
                     };
 
-                    // Compute p-value from ievalue: pvalue = ievalue / Z
-                    let pvalue = ievalue_corrected / z_database;
+                    for dom in &hit.domains {
+                        let ievalue_corrected = if z_seqs > 0.0 {
+                            dom.ievalue / z_seqs * z_database
+                        } else {
+                            dom.ievalue
+                        };
+                        let pvalue = ievalue_corrected / z_database;
 
-                    // Build qualifiers
-                    let mut qualifiers = BTreeMap::new();
-                    qualifiers.insert(
-                        "inference".to_string(),
-                        vec!["protein motif".to_string()],
-                    );
+                        let mut qualifiers = BTreeMap::new();
+                        qualifiers.insert(
+                            "inference".to_string(),
+                            vec!["protein motif".to_string()],
+                        );
 
-                    let mut db_xref = vec![format!("{}:{}", self.hmm.id, accession)];
-                    if let Some(e) = entry {
-                        db_xref.push(format!("InterPro:{}", e.accession));
+                        let mut db_xref = vec![format!("{}:{}", hmm_id, accession)];
+                        if let Some(e) = entry {
+                            db_xref.push(format!("InterPro:{}", e.accession));
+                        }
+                        qualifiers.insert("db_xref".to_string(), db_xref);
+
+                        qualifiers.insert(
+                            "note".to_string(),
+                            vec![
+                                format!("e-value: {:e}", ievalue_corrected),
+                                format!("p-value: {:e}", pvalue),
+                            ],
+                        );
+
+                        if let Some(e) = entry {
+                            qualifiers.insert("function".to_string(), vec![e.name.clone()]);
+                        }
+
+                        results.push((gene_idx, Domain {
+                            name: accession.clone(),
+                            start: dom.ienv as i64,
+                            end: dom.jenv as i64,
+                            hmm: hmm_id.clone(),
+                            i_evalue: ievalue_corrected,
+                            pvalue,
+                            probability: None,
+                            cluster_weight: None,
+                            go_terms: go_terms.clone(),
+                            go_functions: go_functions.clone(),
+                            qualifiers,
+                        }));
                     }
-                    qualifiers.insert("db_xref".to_string(), db_xref);
-
-                    qualifiers.insert(
-                        "note".to_string(),
-                        vec![
-                            format!("e-value: {:e}", ievalue_corrected),
-                            format!("p-value: {:e}", pvalue),
-                        ],
-                    );
-
-                    if let Some(e) = entry {
-                        qualifiers
-                            .insert("function".to_string(), vec![e.name.clone()]);
-                    }
-
-                    let domain = Domain {
-                        name: accession.clone(),
-                        start: dom.ienv as i64,
-                        end: dom.jenv as i64,
-                        hmm: self.hmm.id.clone(),
-                        i_evalue: ievalue_corrected,
-                        pvalue,
-                        probability: None,
-                        cluster_weight: None,
-                        go_terms: go_terms.clone(),
-                        go_functions: go_functions.clone(),
-                        qualifiers,
-                    };
-
-                    genes[gene_idx].protein.domains.push(domain);
                 }
-            }
+                results
+            })
+            .collect();
 
-            if let Some(cb) = progress {
-                cb(hmm_idx + 1, total_hmms);
+        // Merge domains into genes
+        for (gene_idx, domain) in all_domains {
+            if gene_idx < genes.len() {
+                genes[gene_idx].protein.domains.push(domain);
             }
         }
 
