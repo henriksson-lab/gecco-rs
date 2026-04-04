@@ -1,14 +1,22 @@
-//! The `gecco run` subcommand — full pipeline.
+//! The `gecco predict` subcommand — predict from pre-annotated features.
 
 use std::path::PathBuf;
 
 use clap::Args;
 
 #[derive(Args)]
-pub struct RunArgs {
+pub struct PredictArgs {
     /// Path to the input genome (FASTA or GenBank).
-    #[arg(short, long)]
+    #[arg(long)]
     pub genome: PathBuf,
+
+    /// Gene table (TSV).
+    #[arg(short, long)]
+    pub genes: PathBuf,
+
+    /// Domain annotation table(s) (TSV).
+    #[arg(short, long, num_args = 1..)]
+    pub features: Vec<PathBuf>,
 
     /// Output directory.
     #[arg(short, long, default_value = ".")]
@@ -18,22 +26,6 @@ pub struct RunArgs {
     #[arg(short, long, default_value = "0")]
     pub jobs: usize,
 
-    /// Enable masking of ambiguous nucleotides.
-    #[arg(short = 'M', long)]
-    pub mask: bool,
-
-    /// Extract genes from annotated records using this feature type.
-    #[arg(long)]
-    pub cds_feature: Option<String>,
-
-    /// Feature qualifier for gene names when extracting CDS.
-    #[arg(long, default_value = "locus_tag")]
-    pub locus_tag: String,
-
-    /// Path to additional HMM file(s).
-    #[arg(long)]
-    pub hmm: Vec<PathBuf>,
-
     /// E-value cutoff for protein domains.
     #[arg(short, long)]
     pub e_filter: Option<f64>,
@@ -41,10 +33,6 @@ pub struct RunArgs {
     /// P-value cutoff for protein domains.
     #[arg(short, long, default_value = "1e-9")]
     pub p_filter: f64,
-
-    /// Disentangle overlapping domains.
-    #[arg(long)]
-    pub disentangle: bool,
 
     /// Alternative CRF model directory.
     #[arg(long)]
@@ -83,23 +71,17 @@ pub struct RunArgs {
     pub antismash_sideload: bool,
 }
 
-impl RunArgs {
+impl PredictArgs {
     pub fn execute(&self) -> anyhow::Result<()> {
-        log::info!("Running GECCO pipeline on {:?}", self.genome);
-        log::info!("Output directory: {:?}", self.output_dir);
+        log::info!("Predicting clusters from pre-annotated features");
 
-        std::fs::create_dir_all(&self.output_dir)?;
+        // 1. Load gene + feature tables
+        // 2. Filter domains
+        // 3. Predict probabilities (CRF)
+        // 4. Refine clusters
+        // 5. Predict types (RandomForest)
+        // 6. Write output
 
-        // 1. Load sequences (FASTA/GenBank)
-        // 2. Find genes (orphos-core / CDSFinder based on cds_feature)
-        // 3. Annotate domains (hmmer-pure-rs)
-        // 4. Filter domains (e_filter / p_filter)
-        // 5. Optionally disentangle overlapping domains
-        // 6. Predict probabilities (CRF)
-        // 7. Refine clusters (threshold, cds, edge_distance, trim)
-        // 8. Predict types (RandomForest)
-        // 9. Write output (TSV tables + GenBank files)
-
-        anyhow::bail!("Pipeline not yet fully wired — individual modules are implemented")
+        anyhow::bail!("predict subcommand not yet fully wired")
     }
 }

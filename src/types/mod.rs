@@ -1,5 +1,7 @@
 //! Supervised classifier to predict the type of a gene cluster.
 
+pub mod backend;
+
 use std::collections::BTreeSet;
 
 use anyhow::Result;

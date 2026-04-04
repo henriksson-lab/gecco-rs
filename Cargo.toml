@@ -11,11 +11,14 @@ path = "src/main.rs"
 
 [dependencies]
 # Core algorithm
+crfs = "0.4"
 ndarray = "0.16"
+smartcore_proba = { version = "0.4.0-proba.0", features = ["serde"] }
 sprs = "0.11"
 statrs = "0.17"
 
 # Bio I/O
+bio = "2.3"
 noodles-fasta = "0.42"
 gb-io = "0.7"
 
@@ -41,6 +44,9 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2"
 regex-lite = "0.1"
+
+# Gene finding
+orphos-core = "0.1"
 
 # HMMER (local)
 hmmer = { path = "/home/mahogny/github/claude/hmmer-pure-rs/crates/hmmer" }

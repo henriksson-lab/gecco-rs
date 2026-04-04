@@ -1,5 +1,6 @@
 //! CRF-based gene cluster prediction.
 
+pub mod backend;
 pub mod features;
 
 use std::collections::HashMap;
