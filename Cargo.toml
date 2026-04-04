@@ -1,0 +1,46 @@
+[package]
+name = "gecco"
+version = "0.1.0"
+edition = "2021"
+description = "Gene Cluster prediction with Conditional Random Fields"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "gecco"
+path = "src/main.rs"
+
+[dependencies]
+# Core algorithm
+ndarray = "0.16"
+sprs = "0.11"
+statrs = "0.17"
+
+# Bio I/O
+noodles-fasta = "0.42"
+gb-io = "0.7"
+
+# Data I/O
+csv = "1.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1.3"
+
+# Compression
+flate2 = "1.0"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+
+# Utility
+rayon = "1.10"
+rand = "0.8"
+anyhow = "1"
+md5 = "0.7"
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+regex-lite = "0.1"
+
+# HMMER (local)
+hmmer = { path = "/home/mahogny/github/claude/hmmer-pure-rs/crates/hmmer" }
