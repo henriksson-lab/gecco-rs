@@ -62,7 +62,7 @@ impl Default for ProdigalFinder {
 
 impl ORFFinder for ProdigalFinder {
     fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
-        let config = prodigal::ProdigalConfig {
+        let config = prodigal_rs::ProdigalConfig {
             translation_table: self.translation_table.unwrap_or(11),
             closed_ends: self.closed_ends,
             mask_n_runs: self.mask,
@@ -74,7 +74,7 @@ impl ORFFinder for ProdigalFinder {
 
         // Create a reusable predictor for metagenomic mode (caches models + buffers)
         let meta_predictor = if self.metagenome {
-            Some(prodigal::MetaPredictor::with_config(config.clone())
+            Some(prodigal_rs::MetaPredictor::with_config(config.clone())
                 .context("creating MetaPredictor")?)
         } else {
             None
@@ -89,11 +89,11 @@ impl ORFFinder for ProdigalFinder {
             let predicted = if let Some(ref predictor) = meta_predictor {
                 predictor.predict(record.seq.as_bytes())
             } else {
-                let training = prodigal::train_with(record.seq.as_bytes(), &config)
+                let training = prodigal_rs::train_with(record.seq.as_bytes(), &config)
                     .with_context(|| {
                         format!("training Prodigal on sequence {} ({} bp)", record.id, record.seq.len())
                     })?;
-                prodigal::predict_with(record.seq.as_bytes(), &training, &config)
+                prodigal_rs::predict_with(record.seq.as_bytes(), &training, &config)
             }
             .with_context(|| {
                 format!(
@@ -110,8 +110,8 @@ impl ORFFinder for ProdigalFinder {
                 let stop = begin.max(end);
 
                 let strand = match orf.strand {
-                    prodigal::Strand::Forward => Strand::Coding,
-                    prodigal::Strand::Reverse => Strand::Reverse,
+                    prodigal_rs::Strand::Forward => Strand::Coding,
+                    prodigal_rs::Strand::Reverse => Strand::Reverse,
                 };
 
                 let nuc_seq = extract_subseq(&record.seq, start, stop, strand);
