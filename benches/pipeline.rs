@@ -68,7 +68,6 @@ fn main() {
         use gecco::crf::ClusterCRF;
         use gecco::io::tables::FeatureTable;
 
-        let model = CrfSuiteModel::from_file(model_path).unwrap();
         let feat_genes =
             FeatureTable::read_to_genes(std::fs::File::open(feat_path).unwrap()).unwrap();
 

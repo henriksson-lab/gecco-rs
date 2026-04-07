@@ -191,14 +191,10 @@ impl CvArgs {
             }
 
             // Train CRF on training set
-            let crf_model = CrfSuiteModel::train(&[], &[]);
-            if crf_model.is_err() {
-                log::warn!("Failed to train fold {}", fold);
-                continue;
-            }
+            let crf_model = CrfSuiteModel::empty();
             let mut crf =
                 ClusterCRF::new(&self.feature_type, self.window_size, self.window_step);
-            crf.set_model(Box::new(crf_model.unwrap()));
+            crf.set_model(Box::new(crf_model));
 
             if crf.fit(&train_genes, !self.no_shuffle).is_err() {
                 log::warn!("Training failed for fold {}", fold);

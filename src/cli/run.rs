@@ -311,18 +311,26 @@ pub fn load_interpro() -> Result<InterPro> {
 /// Load HMM configs from .ini files or custom paths.
 pub fn load_hmm_configs(custom_hmms: &[PathBuf]) -> Result<Vec<HMM>> {
     if !custom_hmms.is_empty() {
-        // Use custom HMM paths directly
+        // Use custom HMM paths directly, with default relabeling
+        // that strips version suffixes (e.g. PF07690.19 -> PF07690),
+        // matching Python GECCO's behavior.
         Ok(custom_hmms
             .iter()
             .enumerate()
-            .map(|(i, path)| HMM {
-                id: format!("Custom{}", i),
-                version: String::new(),
-                url: String::new(),
-                path: path.clone(),
-                size: None,
-                relabel_with: None,
-                md5: None,
+            .map(|(i, path)| {
+                let base = path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Custom")
+                    .to_string();
+                HMM {
+                    id: if custom_hmms.len() == 1 { base } else { format!("Custom{}", i) },
+                    version: String::new(),
+                    url: String::new(),
+                    path: path.clone(),
+                    size: None,
+                    relabel_with: Some("s/([^\\.]*)(\\..*)?/\\1/".to_string()),
+                    md5: None,
+                }
             })
             .collect())
     } else {

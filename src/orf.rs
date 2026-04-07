@@ -1,6 +1,6 @@
 //! ORF finding: gene prediction from DNA sequences.
 //!
-//! Provides both Prodigal-based gene finding (via orphos-core) and
+//! Provides both Prodigal-based gene finding (via the `prodigal` crate) and
 //! extraction of existing CDS annotations from GenBank records.
 
 use std::collections::BTreeMap;
@@ -39,7 +39,7 @@ impl Default for CDSFinder {
     }
 }
 
-/// Prodigal-based gene finder using orphos-core.
+/// Prodigal-based gene finder using the `prodigal` crate.
 pub struct ProdigalFinder {
     pub metagenome: bool,
     pub mask: bool,
@@ -62,22 +62,23 @@ impl Default for ProdigalFinder {
 
 impl ORFFinder for ProdigalFinder {
     fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
-        let config = orphos_core::config::OrphosConfig {
-            metagenomic: self.metagenome,
+        let config = prodigal::ProdigalConfig {
+            translation_table: self.translation_table.unwrap_or(11),
             closed_ends: self.closed_ends,
             mask_n_runs: self.mask,
-            translation_table: self.translation_table,
-            num_threads: if self.cpus > 0 {
-                Some(self.cpus)
-            } else {
-                None
-            },
-            quiet: true,
             ..Default::default()
         };
 
-        let mut analyzer = orphos_core::OrphosAnalyzer::new(config);
+        let tt = self.translation_table.unwrap_or(11) as u32;
         let mut all_genes = Vec::new();
+
+        // Create a reusable predictor for metagenomic mode (caches models + buffers)
+        let meta_predictor = if self.metagenome {
+            Some(prodigal::MetaPredictor::with_config(config.clone())
+                .context("creating MetaPredictor")?)
+        } else {
+            None
+        };
 
         for record in records {
             if record.seq.len() < 20 {
@@ -85,31 +86,34 @@ impl ORFFinder for ProdigalFinder {
                 continue;
             }
 
-            let results = analyzer
-                .analyze_sequence(&record.seq, Some(record.id.clone()))
-                .with_context(|| {
-                    format!(
-                        "running gene prediction on sequence {} ({} bp)",
-                        record.id,
-                        record.seq.len()
-                    )
-                })?;
+            let predicted = if let Some(ref predictor) = meta_predictor {
+                predictor.predict(record.seq.as_bytes())
+            } else {
+                let training = prodigal::train_with(record.seq.as_bytes(), &config)
+                    .with_context(|| {
+                        format!("training Prodigal on sequence {} ({} bp)", record.id, record.seq.len())
+                    })?;
+                prodigal::predict_with(record.seq.as_bytes(), &training, &config)
+            }
+            .with_context(|| {
+                format!(
+                    "running gene prediction on sequence {} ({} bp)",
+                    record.id,
+                    record.seq.len()
+                )
+            })?;
 
-            let tt = self.translation_table.unwrap_or(11) as u32;
-
-            for (j, orf) in results.genes.iter().enumerate() {
-                let begin = orf.coordinates.begin;
-                let end = orf.coordinates.end;
+            for (j, orf) in predicted.iter().enumerate() {
+                let begin = orf.begin;
+                let end = orf.end;
                 let start = begin.min(end);
                 let stop = begin.max(end);
 
-                let strand = match orf.coordinates.strand {
-                    bio::bio_types::strand::Strand::Forward => Strand::Coding,
-                    bio::bio_types::strand::Strand::Reverse => Strand::Reverse,
-                    _ => Strand::Coding,
+                let strand = match orf.strand {
+                    prodigal::Strand::Forward => Strand::Coding,
+                    prodigal::Strand::Reverse => Strand::Reverse,
                 };
 
-                // Extract nucleotide subsequence and translate to protein
                 let nuc_seq = extract_subseq(&record.seq, start, stop, strand);
                 let prot_seq = translate_dna(&nuc_seq, tt);
 
@@ -119,7 +123,7 @@ impl ORFFinder for ProdigalFinder {
                 let mut qualifiers = BTreeMap::new();
                 qualifiers.insert(
                     "inference".to_string(),
-                    vec!["ab initio prediction:Orphos".to_string()],
+                    vec!["ab initio prediction:Prodigal".to_string()],
                 );
                 qualifiers.insert(
                     "transl_table".to_string(),
@@ -139,7 +143,7 @@ impl ORFFinder for ProdigalFinder {
 
             info!(
                 "Found {} genes in {} ({} bp)",
-                results.genes.len(),
+                predicted.len(),
                 record.id,
                 record.seq.len()
             );

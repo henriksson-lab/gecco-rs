@@ -150,15 +150,7 @@ impl TrainArgs {
         let mut crf = ClusterCRF::new(&self.feature_type, self.window_size, self.window_step);
 
         // Initialize with a CrfSuiteModel; fit() will train via CrfModel::fit()
-        let init_model: Box<dyn crate::crf::CrfModel> = match CrfSuiteModel::from_bytes(Vec::new()) {
-            Ok(m) => Box::new(m),
-            Err(_) => {
-                // Empty model — fit() will replace it
-                Box::new(CrfSuiteModel::train(&[], &[]).unwrap_or_else(|_| {
-                    panic!("Failed to create initial CRF model")
-                }))
-            }
-        };
+        let init_model: Box<dyn crate::crf::CrfModel> = Box::new(CrfSuiteModel::empty());
         crf.set_model(init_model);
         crf.fit(&genes, !self.no_shuffle)?;
 
