@@ -145,6 +145,8 @@ fn ureq_get(url: &str) -> Result<Vec<u8>> {
         .call()
         .with_context(|| format!("downloading {}", url))?
         .into_body()
+        .with_config()
+        .limit(200 * 1024 * 1024)
         .read_to_vec()
         .with_context(|| format!("reading response from {}", url))?;
     Ok(body)
