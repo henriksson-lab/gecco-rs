@@ -238,7 +238,6 @@ fn parse_obo(data: &[u8]) -> Result<GeneOntology> {
                 name,
                 namespace,
                 is_a,
-                is_obsolete,
             },
         );
     }
