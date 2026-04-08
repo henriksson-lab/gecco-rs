@@ -9,6 +9,7 @@ pub mod cv;
 pub mod predict;
 pub mod run;
 pub mod train;
+pub mod update_interpro;
 
 #[derive(Parser)]
 #[command(name = "gecco", version, about = "Gene Cluster prediction with Conditional Random Fields")]
@@ -41,4 +42,6 @@ pub enum Commands {
     Convert(convert::ConvertArgs),
     /// Download HMM databases and build data files.
     BuildData(build_data::BuildDataArgs),
+    /// Rebuild interpro.json from upstream GO and InterPro databases.
+    UpdateInterpro(update_interpro::UpdateInterProArgs),
 }

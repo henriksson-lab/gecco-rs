@@ -75,6 +75,7 @@ impl BuildDataArgs {
         } else {
             // Check for existing .crfsuite model in common locations
             let candidates = [
+                PathBuf::from("GECCO/gecco/crf/model.crfsuite"),
                 PathBuf::from("model.crfsuite"),
                 PathBuf::from("data/model.crfsuite"),
             ];

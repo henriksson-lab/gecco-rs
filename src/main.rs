@@ -25,5 +25,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Cv(args) => args.execute(),
         Commands::Convert(args) => args.execute(),
         Commands::BuildData(args) => args.execute(),
+        Commands::UpdateInterpro(args) => args.execute(),
     }
 }
