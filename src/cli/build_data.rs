@@ -9,6 +9,7 @@ use log::info;
 
 const GECCO_VERSION: &str = "0.10.3";
 const INTERPRO_URL: &str = "https://github.com/zellerlab/GECCO/raw/v0.10.3/gecco/interpro/interpro.json";
+const MODEL_URL: &str = "https://github.com/henriksson-lab/gecco-rs/raw/main/model.crfsuite";
 
 #[derive(Args)]
 pub struct BuildDataArgs {
@@ -89,11 +90,10 @@ impl BuildDataArgs {
                 }
             }
             if !found {
-                info!(
-                    "No .crfsuite model found. Train one with `gecco train` \
-                     and place it at {:?}",
-                    model_path
-                );
+                info!("Downloading CRF model from {}", MODEL_URL);
+                let data = ureq_get(MODEL_URL)?;
+                std::fs::write(&model_path, &data)?;
+                info!("CRF model ready at {:?} ({} bytes)", model_path, data.len());
             }
         }
 
