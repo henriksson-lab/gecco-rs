@@ -12,8 +12,7 @@
 //! use gecco::orf::SeqRecord;
 //!
 //! let pipeline = Pipeline::builder()
-//!     .crf_model("model.crfsuite")
-//!     .hmm("Pfam.hmm")
+//!     .data_dir("gecco_data")
 //!     .threshold(0.8)
 //!     .build()
 //!     .unwrap();
@@ -43,6 +42,7 @@ pub mod types;
 pub mod util;
 pub mod pipeline;
 pub mod cli;
+pub mod data_dir;
 
 // Re-export key types at crate root for convenience.
 pub use model::{Cluster, Gene, Domain, Protein};

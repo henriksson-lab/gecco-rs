@@ -1,4 +1,4 @@
-//! The `gecco build-data` subcommand — download HMM databases.
+//! The `gecco build-data` subcommand — download HMM databases and data files.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -8,10 +8,11 @@ use clap::Args;
 use log::info;
 
 const GECCO_VERSION: &str = "0.10.3";
+const INTERPRO_URL: &str = "https://github.com/zellerlab/GECCO/raw/v0.10.3/gecco/interpro/interpro.json";
 
 #[derive(Args)]
 pub struct BuildDataArgs {
-    /// Output directory for data files (default: alongside GECCO data).
+    /// Output directory for data files (default: ./gecco_data).
     #[arg(short, long)]
     pub output_dir: Option<PathBuf>,
 
@@ -25,66 +26,82 @@ impl BuildDataArgs {
         let output_dir = self
             .output_dir
             .clone()
-            .unwrap_or_else(|| PathBuf::from("data"));
+            .unwrap_or_else(|| PathBuf::from("gecco_data"));
         std::fs::create_dir_all(&output_dir)?;
 
-        // Read HMM configs from .ini files
-        let ini_path = PathBuf::from("GECCO/gecco/hmmer/Pfam.ini");
-        if ini_path.exists() {
-            let ini = std::fs::read_to_string(&ini_path)?;
-            let cfg = parse_ini(&ini);
-
-            let id = cfg.get("id").map(|s| s.as_str()).unwrap_or("Pfam");
-            let md5_expected = cfg.get("md5").cloned();
-
-            let h3m_path = output_dir.join(format!("{}.h3m", id));
-
-            if h3m_path.exists() && !self.force {
-                info!("{:?} already exists, skipping (use --force to re-download)", h3m_path);
-            } else {
-                download_hmm(id, &h3m_path, md5_expected.as_deref())?;
-            }
-
-            // Also create/update the .hmm text version for the hmmer crate
-            // The Rust hmmer crate can read .h3m directly via binary::read_all_pressed
-            info!("HMM data ready at {:?}", h3m_path);
-
-            // Symlink or copy to where the pipeline expects it
-            let target = ini_path.with_extension("h3m");
-            if !target.exists() || self.force {
-                if target.exists() {
-                    std::fs::remove_file(&target)?;
-                }
-                #[cfg(unix)]
-                {
-                    let abs_h3m = std::fs::canonicalize(&h3m_path)?;
-                    std::os::unix::fs::symlink(&abs_h3m, &target)
-                        .or_else(|_| std::fs::copy(&h3m_path, &target).map(|_| ()))?;
-                }
-                #[cfg(not(unix))]
-                {
-                    std::fs::copy(&h3m_path, &target)?;
-                }
-                info!("Linked {:?} -> {:?}", target, h3m_path);
-            }
+        // 1. Download Pfam HMM
+        let h3m_path = output_dir.join("Pfam.h3m");
+        if h3m_path.exists() && !self.force {
+            info!("{:?} already exists, skipping (use --force to re-download)", h3m_path);
         } else {
-            info!("No Pfam.ini found; downloading default Pfam HMM");
-            let h3m_path = output_dir.join("Pfam.h3m");
-            download_hmm("Pfam", &h3m_path, None)?;
+            // Try reading config from .ini if available, otherwise use defaults
+            let ini_path = PathBuf::from("GECCO/gecco/hmmer/Pfam.ini");
+            let (id, md5_expected, fallback_url) = if ini_path.exists() {
+                let ini = std::fs::read_to_string(&ini_path)?;
+                let cfg = parse_ini(&ini);
+                (
+                    cfg.get("id").cloned().unwrap_or_else(|| "Pfam".to_string()),
+                    cfg.get("md5").cloned(),
+                    cfg.get("url").cloned(),
+                )
+            } else {
+                ("Pfam".to_string(), None, None)
+            };
+            download_hmm(&id, &h3m_path, md5_expected.as_deref(), fallback_url.as_deref())?;
         }
 
-        // Also download InterPro metadata if missing
-        let interpro_path = PathBuf::from("GECCO/gecco/interpro/interpro.json");
-        if !interpro_path.exists() {
-            info!("InterPro metadata not found at {:?} — using empty set", interpro_path);
+        // 2. Download InterPro metadata
+        let interpro_path = output_dir.join("interpro.json");
+        if interpro_path.exists() && !self.force {
+            info!("{:?} already exists, skipping", interpro_path);
+        } else {
+            // Try copying from GECCO source tree first
+            let source = PathBuf::from("GECCO/gecco/interpro/interpro.json");
+            if source.exists() {
+                info!("Copying InterPro metadata from {:?}", source);
+                std::fs::copy(&source, &interpro_path)?;
+            } else {
+                info!("Downloading InterPro metadata");
+                let data = ureq_get(INTERPRO_URL)?;
+                std::fs::write(&interpro_path, &data)?;
+            }
+            info!("InterPro metadata ready at {:?}", interpro_path);
         }
 
-        info!("Build data complete");
+        // 3. Copy CRF model if available
+        let model_path = output_dir.join("model.crfsuite");
+        if model_path.exists() && !self.force {
+            info!("{:?} already exists, skipping", model_path);
+        } else {
+            // Check for existing .crfsuite model in common locations
+            let candidates = [
+                PathBuf::from("model.crfsuite"),
+                PathBuf::from("data/model.crfsuite"),
+            ];
+            let mut found = false;
+            for src in &candidates {
+                if src.exists() {
+                    info!("Copying CRF model from {:?}", src);
+                    std::fs::copy(src, &model_path)?;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                info!(
+                    "No .crfsuite model found. Train one with `gecco train` \
+                     and place it at {:?}",
+                    model_path
+                );
+            }
+        }
+
+        info!("Build data complete. Data directory: {:?}", output_dir);
         Ok(())
     }
 }
 
-fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>) -> Result<()> {
+fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>, fallback_url: Option<&str>) -> Result<()> {
     // Download pre-built .h3m from GECCO GitHub releases
     let url = format!(
         "https://github.com/zellerlab/GECCO/releases/download/v{}/{}.h3m.gz",
@@ -108,14 +125,10 @@ fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>) -> Result<(
         }
         Err(e) => {
             log::warn!("GitHub download failed: {}. Trying fallback...", e);
-            let ini_path = format!("GECCO/gecco/hmmer/{}.ini", id);
-            if let Ok(ini) = std::fs::read_to_string(&ini_path) {
-                let cfg = parse_ini(&ini);
-                if let Some(fallback_url) = cfg.get("url") {
-                    info!("Downloading from {}", fallback_url);
-                    download_and_decompress_hmm_filter(fallback_url, output)?;
-                    return Ok(());
-                }
+            if let Some(url) = fallback_url {
+                info!("Downloading from {}", url);
+                download_and_decompress_hmm_filter(url, output)?;
+                return Ok(());
             }
             Err(e)
         }

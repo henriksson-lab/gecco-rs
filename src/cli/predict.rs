@@ -8,6 +8,7 @@ use clap::Args;
 use log::info;
 
 use crate::crf::ClusterCRF;
+use crate::data_dir;
 use crate::hmmer;
 use crate::io::genbank;
 use crate::io::tables::{ClusterTable, FeatureTable, GeneTable};
@@ -44,6 +45,11 @@ pub struct PredictArgs {
     /// P-value cutoff for protein domains.
     #[arg(short, long, default_value = "1e-9")]
     pub p_filter: f64,
+
+    /// Data directory containing CRF model and other data files.
+    /// Defaults to gecco_data/ next to the binary, or GECCO_DATA_DIR env var.
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
 
     /// Alternative CRF model file.
     #[arg(long)]
@@ -137,7 +143,8 @@ impl PredictArgs {
 
         // 3. Predict probabilities
         info!("Predicting cluster probabilities");
-        let crf_model = super::run::load_crf_model(&self.model)?;
+        let data_dir = data_dir::resolve(self.data_dir.as_ref());
+        let crf_model = super::run::load_crf_model(&self.model, &data_dir)?;
         let mut crf = ClusterCRF::new("protein", 5, 1);
         crf.set_model(Box::new(crf_model));
         genes = crf.predict_probabilities(&genes, !self.no_pad, None)?;

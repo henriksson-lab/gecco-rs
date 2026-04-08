@@ -7,8 +7,7 @@
 //! use gecco::orf::SeqRecord;
 //!
 //! let pipeline = Pipeline::builder()
-//!     .crf_model("path/to/model.crfsuite")
-//!     .hmm("path/to/Pfam.hmm")
+//!     .data_dir("gecco_data")
 //!     .threshold(0.8)
 //!     .build()
 //!     .unwrap();
@@ -32,6 +31,7 @@ use log::info;
 
 use crate::crf::backend::CrfSuiteModel;
 use crate::crf::ClusterCRF;
+use crate::data_dir;
 use crate::hmmer::{self, DomainAnnotator, PyHMMER, HMM};
 use crate::interpro::InterPro;
 use crate::model::{Cluster, Gene};
@@ -40,6 +40,7 @@ use crate::refine::ClusterRefiner;
 
 /// Builder for constructing a [`Pipeline`] with custom settings.
 pub struct PipelineBuilder {
+    data_dir: Option<PathBuf>,
     crf_model_path: Option<PathBuf>,
     hmm_configs: Vec<HMM>,
     hmm_paths: Vec<PathBuf>,
@@ -62,6 +63,7 @@ pub struct PipelineBuilder {
 impl Default for PipelineBuilder {
     fn default() -> Self {
         Self {
+            data_dir: None,
             crf_model_path: None,
             hmm_configs: Vec::new(),
             hmm_paths: Vec::new(),
@@ -84,7 +86,17 @@ impl Default for PipelineBuilder {
 }
 
 impl PipelineBuilder {
-    /// Path to a CRFsuite model file (required).
+    /// Set the data directory containing default HMM, CRF model, and InterPro files.
+    ///
+    /// When set, the builder will automatically load default files from this directory
+    /// for any paths not explicitly configured. If not set, defaults to `gecco_data/`
+    /// next to the binary or the `GECCO_DATA_DIR` environment variable.
+    pub fn data_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.data_dir = Some(path.into());
+        self
+    }
+
+    /// Path to a CRFsuite model file (required unless data_dir contains model.crfsuite).
     pub fn crf_model(mut self, path: impl Into<PathBuf>) -> Self {
         self.crf_model_path = Some(path.into());
         self
@@ -188,14 +200,20 @@ impl PipelineBuilder {
     }
 
     /// Build the pipeline, loading models from the configured paths.
+    ///
+    /// If no CRF model, HMM, or InterPro path was explicitly set, the builder
+    /// will look for default files in the data directory.
     pub fn build(self) -> Result<Pipeline> {
-        let crf_model_path = self
-            .crf_model_path
-            .ok_or_else(|| anyhow::anyhow!("CRF model path is required — call .crf_model()"))?;
+        let resolved_data_dir = data_dir::resolve(self.data_dir.as_ref());
 
+        // CRF model: explicit path > data_dir default
+        let crf_model_path = self.crf_model_path.unwrap_or_else(|| {
+            data_dir::crf_model_path(&resolved_data_dir)
+        });
         let crf_model = CrfSuiteModel::from_file(&crf_model_path)
             .with_context(|| format!("loading CRF model from {:?}", crf_model_path))?;
 
+        // HMMs: explicit configs/paths > data_dir default
         let mut hmms = self.hmm_configs;
         for (i, path) in self.hmm_paths.iter().enumerate() {
             hmms.push(HMM {
@@ -208,14 +226,38 @@ impl PipelineBuilder {
                 md5: None,
             });
         }
+        if hmms.is_empty() {
+            let default_hmm = data_dir::hmm_path(&resolved_data_dir);
+            if default_hmm.exists() {
+                hmms.push(HMM {
+                    id: "Pfam".to_string(),
+                    version: String::new(),
+                    url: String::new(),
+                    path: default_hmm,
+                    size: None,
+                    relabel_with: Some("s/(PF\\d+).\\d+/\\1/".to_string()),
+                    md5: None,
+                });
+            }
+        }
 
+        // InterPro: explicit path > data_dir default > empty
         let interpro = match &self.interpro_path {
             Some(path) => {
                 let data = std::fs::read(path)
                     .with_context(|| format!("reading InterPro JSON from {:?}", path))?;
                 InterPro::from_json(&data)?
             }
-            None => InterPro::from_json(b"[]")?,
+            None => {
+                let default_path = data_dir::interpro_path(&resolved_data_dir);
+                if default_path.exists() {
+                    let data = std::fs::read(&default_path)
+                        .with_context(|| format!("reading InterPro JSON from {:?}", default_path))?;
+                    InterPro::from_json(&data)?
+                } else {
+                    InterPro::from_json(b"[]")?
+                }
+            }
         };
 
         Ok(Pipeline {

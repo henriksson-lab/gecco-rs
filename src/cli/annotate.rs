@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use log::info;
 
+use crate::data_dir;
 use crate::hmmer::{self, DomainAnnotator, PyHMMER};
 use crate::io::genbank;
 use crate::io::tables::{FeatureTable, GeneTable};
@@ -20,6 +21,11 @@ pub struct AnnotateArgs {
     /// Output directory.
     #[arg(short, long, default_value = ".")]
     pub output_dir: PathBuf,
+
+    /// Data directory containing HMM and InterPro files.
+    /// Defaults to gecco_data/ next to the binary, or GECCO_DATA_DIR env var.
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
 
     /// Number of threads (0 = auto-detect).
     #[arg(short, long, default_value = "0")]
@@ -107,8 +113,9 @@ impl AnnotateArgs {
 
         // 3. Annotate domains
         info!("Annotating protein domains");
-        let interpro = super::run::load_interpro()?;
-        let hmms = super::run::load_hmm_configs(&self.hmm)?;
+        let data_dir = data_dir::resolve(self.data_dir.as_ref());
+        let interpro = super::run::load_interpro(&data_dir)?;
+        let hmms = super::run::load_hmm_configs(&self.hmm, &data_dir)?;
         for hmm_config in &hmms {
             let annotator = PyHMMER::new(hmm_config.clone());
             annotator.run(&mut genes, &interpro, None)?;

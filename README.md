@@ -19,11 +19,18 @@ GECCO-RS requires a Rust toolchain (1.70+). Build with:
 $ cargo build --release
 ```
 
-Before first use, download the HMM databases:
+Before first use, download the data files (Pfam HMM, InterPro metadata):
 
 ```console
 $ gecco build-data
 ```
+
+This creates a `gecco_data/` directory in the current working directory. At
+runtime, GECCO looks for data files next to the binary (`gecco_data/` alongside
+the `gecco` executable). You can override this with:
+
+- `--data-dir /path/to/data` on any command
+- The `GECCO_DATA_DIR` environment variable
 
 ## Usage
 
@@ -32,6 +39,12 @@ cluster refinement, and type classification) on a genome:
 
 ```console
 $ gecco run --genome some_genome.fna -o output_dir --model model.crfsuite
+```
+
+To use data files from a custom location:
+
+```console
+$ gecco run --genome some_genome.fna --data-dir /opt/gecco_data
 ```
 
 ### Commands
@@ -62,6 +75,7 @@ refinement, and type classification.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-g, --genome` | Input genome file (FASTA or GenBank) | *required* |
+| `--data-dir` | Data directory (HMM, CRF model, InterPro files) | `gecco_data/` next to binary |
 
 **Gene calling:**
 
@@ -76,7 +90,7 @@ refinement, and type classification.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--hmm` | Path to alternative HMM file(s) (can be repeated) | embedded |
+| `--hmm` | Path to alternative HMM file(s) (can be repeated) | from data dir |
 | `-e, --e-filter` | E-value cutoff for protein domains | — |
 | `-p, --p-filter` | P-value cutoff for protein domains | `1e-9` |
 | `--disentangle` | Disentangle overlapping domains | off |
@@ -85,7 +99,7 @@ refinement, and type classification.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--model` | Path to alternative CRF model (`.crfsuite` format) | embedded |
+| `--model` | Path to alternative CRF model (`.crfsuite` format) | from data dir |
 | `--no-pad` | Disable padding of short gene sequences | off |
 | `-c, --cds` | Minimum coding sequences per cluster | `3` |
 | `-m, --threshold` | Probability threshold for cluster membership | `0.8` |
@@ -109,11 +123,12 @@ Run only gene finding and domain annotation (no cluster prediction).
 |------|-------------|---------|
 | `-g, --genome` | Input genome file | *required* |
 | `-o, --output-dir` | Output directory | `.` |
+| `--data-dir` | Data directory (HMM, InterPro files) | `gecco_data/` next to binary |
 | `-j, --jobs` | Number of threads (0 = auto-detect) | `0` |
 | `-M, --mask` | Mask ambiguous nucleotides | off |
 | `--cds-feature` | Extract genes from annotated features | — |
 | `--locus-tag` | Feature qualifier for naming genes | `locus_tag` |
-| `--hmm` | Alternative HMM file(s) | embedded |
+| `--hmm` | Alternative HMM file(s) | from data dir |
 | `-e, --e-filter` | E-value cutoff | — |
 | `-p, --p-filter` | P-value cutoff | `1e-9` |
 | `--disentangle` | Disentangle overlapping domains | off |
@@ -129,10 +144,11 @@ Predict clusters from pre-annotated feature/gene tables.
 | `-g, --genes` | Gene coordinate table (TSV) | *required* |
 | `-f, --features` | Domain annotation table(s) (can be repeated) | *required* |
 | `-o, --output-dir` | Output directory | `.` |
+| `--data-dir` | Data directory (CRF model) | `gecco_data/` next to binary |
 | `-j, --jobs` | Number of threads (0 = auto-detect) | `0` |
 | `-e, --e-filter` | E-value cutoff | — |
 | `-p, --p-filter` | P-value cutoff | `1e-9` |
-| `--model` | Alternative CRF model | embedded |
+| `--model` | Alternative CRF model | from data dir |
 | `--no-pad` | Disable feature padding | off |
 | `-c, --cds` | Minimum coding sequences per cluster | `3` |
 | `-m, --threshold` | Probability threshold | `0.8` |
@@ -212,7 +228,7 @@ Download HMM databases and prepare data files for the pipeline.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-o, --output-dir` | Output directory for data files | `data` |
+| `-o, --output-dir` | Output directory for data files | `gecco_data` |
 | `-f, --force` | Force re-download even if files exist | off |
 
 ## Results

@@ -9,6 +9,7 @@ use log::info;
 
 use crate::crf::backend::CrfSuiteModel;
 use crate::crf::ClusterCRF;
+use crate::data_dir;
 use crate::hmmer::{self, DomainAnnotator, PyHMMER, HMM};
 use crate::interpro::InterPro;
 use crate::io::genbank;
@@ -27,6 +28,11 @@ pub struct RunArgs {
     /// Output directory.
     #[arg(short, long, default_value = ".")]
     pub output_dir: PathBuf,
+
+    /// Data directory containing HMM, CRF model, and InterPro files.
+    /// Defaults to gecco_data/ next to the binary, or GECCO_DATA_DIR env var.
+    #[arg(long)]
+    pub data_dir: Option<PathBuf>,
 
     /// Number of threads (0 = auto-detect).
     #[arg(short, long, default_value = "0")]
@@ -147,11 +153,12 @@ impl RunArgs {
         )?;
 
         // 3. Load InterPro metadata
-        let interpro = load_interpro()?;
+        let data_dir = data_dir::resolve(self.data_dir.as_ref());
+        let interpro = load_interpro(&data_dir)?;
 
         // 4. Annotate domains with HMMER
         info!("Annotating protein domains");
-        let hmms = load_hmm_configs(&self.hmm)?;
+        let hmms = load_hmm_configs(&self.hmm, &data_dir)?;
         for hmm_config in &hmms {
             let annotator = PyHMMER::new(hmm_config.clone());
             annotator.run(&mut genes, &interpro, None)?;
@@ -180,7 +187,7 @@ impl RunArgs {
 
         // 5. Predict probabilities with CRF
         info!("Predicting cluster probabilities");
-        let crf_model = load_crf_model(&self.model)?;
+        let crf_model = load_crf_model(&self.model, &data_dir)?;
         let mut crf = ClusterCRF::new("protein", 5, 1);
         crf.set_model(Box::new(crf_model));
         genes = crf.predict_probabilities(&genes, !self.no_pad, None)?;
@@ -295,21 +302,20 @@ fn write_empty_tables(output_dir: &std::path::Path, base: &str) -> Result<()> {
     Ok(())
 }
 
-/// Load InterPro metadata from embedded JSON.
-pub fn load_interpro() -> Result<InterPro> {
-    // Try loading from the embedded data path
-    let interpro_path = std::path::Path::new("GECCO/gecco/interpro/interpro.json");
+/// Load InterPro metadata from the data directory.
+pub fn load_interpro(data_dir: &std::path::Path) -> Result<InterPro> {
+    let interpro_path = data_dir::interpro_path(data_dir);
     if interpro_path.exists() {
-        let data = std::fs::read(interpro_path)?;
+        let data = std::fs::read(&interpro_path)?;
         InterPro::from_json(&data)
     } else {
-        // Return empty InterPro if file not found
+        log::warn!("InterPro metadata not found at {:?}, skipping", interpro_path);
         Ok(InterPro::from_json(b"[]")?)
     }
 }
 
-/// Load HMM configs from .ini files or custom paths.
-pub fn load_hmm_configs(custom_hmms: &[PathBuf]) -> Result<Vec<HMM>> {
+/// Load HMM configs from custom paths or the data directory.
+pub fn load_hmm_configs(custom_hmms: &[PathBuf], data_dir: &std::path::Path) -> Result<Vec<HMM>> {
     if !custom_hmms.is_empty() {
         // Use custom HMM paths directly, with default relabeling
         // that strips version suffixes (e.g. PF07690.19 -> PF07690),
@@ -334,47 +340,41 @@ pub fn load_hmm_configs(custom_hmms: &[PathBuf]) -> Result<Vec<HMM>> {
             })
             .collect())
     } else {
-        // Try loading embedded Pfam HMM config
-        let ini_path = std::path::Path::new("GECCO/gecco/hmmer/Pfam.ini");
-        if ini_path.exists() {
-            let ini = std::fs::read_to_string(ini_path)?;
-            let mut hmm = HMM::from_ini(&ini, ini_path.parent().unwrap())?;
-            // Check for .h3m binary first, then .hmm text
-            let h3m_path = ini_path.with_extension("h3m");
-            if h3m_path.exists() {
-                hmm.path = h3m_path;
-            } else if !hmm.path.exists() {
-                anyhow::bail!(
-                    "HMM data file not found at {:?} or {:?}. \
-                     Run `gecco build-data` to download it.",
-                    hmm.path,
-                    h3m_path
-                );
-            }
-            Ok(vec![hmm])
+        let h3m_path = data_dir::hmm_path(data_dir);
+        if h3m_path.exists() {
+            Ok(vec![HMM {
+                id: "Pfam".to_string(),
+                version: String::new(),
+                url: String::new(),
+                path: h3m_path,
+                size: None,
+                relabel_with: Some("s/(PF\\d+).\\d+/\\1/".to_string()),
+                md5: None,
+            }])
         } else {
-            log::warn!("No HMM database found; skipping domain annotation");
-            Ok(vec![])
+            anyhow::bail!(
+                "HMM data file not found at {:?}. \
+                 Run `gecco build-data` to download it, or use --data-dir to specify the location.",
+                h3m_path
+            );
         }
     }
 }
 
-/// Load CRF model from file or return error if not available.
-pub fn load_crf_model(model_path: &Option<PathBuf>) -> Result<CrfSuiteModel> {
+/// Load CRF model from file or from the data directory.
+pub fn load_crf_model(model_path: &Option<PathBuf>, data_dir: &std::path::Path) -> Result<CrfSuiteModel> {
     match model_path {
         Some(path) => CrfSuiteModel::from_file(path),
         None => {
-            // Try embedded model
-            let default_path = std::path::Path::new("GECCO/gecco/crf/model.pkl");
+            let default_path = data_dir::crf_model_path(data_dir);
             if default_path.exists() {
-                // Note: pickle format not compatible, need .crfsuite format
-                anyhow::bail!(
-                    "Embedded Python pickle model not compatible with Rust. \
-                     Please provide a .crfsuite model with --model"
-                )
+                CrfSuiteModel::from_file(&default_path)
             } else {
                 anyhow::bail!(
-                    "No CRF model found. Train one with `gecco train` or provide with --model"
+                    "No CRF model found at {:?}. \
+                     Train one with `gecco train` or provide with --model, \
+                     or use --data-dir to specify the location.",
+                    default_path
                 )
             }
         }
