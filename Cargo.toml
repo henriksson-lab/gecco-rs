@@ -25,7 +25,7 @@ bench = []
 
 [dependencies]
 # Core algorithm
-crfsuite-compliant-rs = "0.2"
+crfsuite-compliant-rs = "0.2.1"
 ndarray = "0.17"
 smartcore_proba = { version = "0.4.0-proba.0", features = ["serde"] }
 sprs = "0.11"
