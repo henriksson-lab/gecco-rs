@@ -1,6 +1,6 @@
 [package]
 name = "gecco"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
@@ -25,36 +25,36 @@ bench = []
 
 [dependencies]
 # Core algorithm
-crfsuite-compliant-rs = "0.1.0"
-ndarray = "0.16"
+crfsuite-compliant-rs = "0.2"
+ndarray = "0.17"
 smartcore_proba = { version = "0.4.0-proba.0", features = ["serde"] }
 sprs = "0.11"
 statrs = "0.17"
 
 # Bio I/O
-bio = "2.3"
-noodles-fasta = "0.42"
-gb-io = "0.7"
+bio = "3.0"
+noodles-fasta = "0.60"
+gb-io = "0.9"
 
 # Data I/O
 csv = "1.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-bincode = "1.3"
+bincode = "2"
 
 # Compression
 flate2 = "1.0"
-quick-xml = "0.37"
+quick-xml = "0.39"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
-indicatif = "0.17"
+indicatif = "0.18"
 
 # Utility
 rayon = "1.10"
-rand = "0.8"
+rand = "0.9"
 anyhow = "1"
-md5 = "0.7"
+md5 = "0.8"
 ureq = "3"
 log = "0.4"
 env_logger = "0.11"

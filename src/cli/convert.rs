@@ -127,15 +127,15 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
                 let mut out = std::fs::File::create(&out_path)?;
                 for seq in &seqs {
                     for feat in &seq.features {
-                        if feat.kind != gb_io::FeatureKind::from("CDS") {
+                        if feat.kind != std::borrow::Cow::from("CDS") {
                             continue;
                         }
                         let locus_tag = feat
-                            .qualifier_values(gb_io::QualifierKey::from("locus_tag"))
+                            .qualifier_values("locus_tag")
                             .next()
                             .unwrap_or("unknown");
                         let translation = feat
-                            .qualifier_values(gb_io::QualifierKey::from("translation"))
+                            .qualifier_values("translation")
                             .next()
                             .unwrap_or("");
                         if !translation.is_empty() {

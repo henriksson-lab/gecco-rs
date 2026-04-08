@@ -1,5 +1,6 @@
 //! GenBank I/O for reading input genomes and writing annotated cluster records.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
@@ -159,24 +160,24 @@ pub fn cluster_to_seq(
         // Standard qualifiers
         if let Some(inf) = gene.qualifiers.get("inference") {
             for v in inf {
-                qualifiers.push((gb_io::QualifierKey::from("inference"), Some(v.clone())));
+                qualifiers.push((Cow::from("inference"), Some(v.clone())));
             }
         }
         if let Some(tt) = gene.qualifiers.get("transl_table") {
             for v in tt {
                 qualifiers.push((
-                    gb_io::QualifierKey::from("transl_table"),
+                    Cow::from("transl_table"),
                     Some(v.clone()),
                 ));
             }
         }
         qualifiers.push((
-            gb_io::QualifierKey::from("locus_tag"),
+            Cow::from("locus_tag"),
             Some(gene.protein.id.clone()),
         ));
         if !gene.protein.seq.is_empty() {
             qualifiers.push((
-                gb_io::QualifierKey::from("translation"),
+                Cow::from("translation"),
                 Some(format!("{}*", gene.protein.seq)),
             ));
         }
@@ -185,26 +186,26 @@ pub fn cluster_to_seq(
         let mut funcs: Vec<String> = gene.functions().into_iter().collect();
         funcs.sort();
         for f in &funcs {
-            qualifiers.push((gb_io::QualifierKey::from("function"), Some(f.clone())));
+            qualifiers.push((Cow::from("function"), Some(f.clone())));
         }
 
         // Colors
         let color = gene_color(gene);
         qualifiers.push((
-            gb_io::QualifierKey::from("colour"),
+            Cow::from("colour"),
             Some(color.rgb_str()),
         ));
         qualifiers.push((
-            gb_io::QualifierKey::from("ApEinfo_fwdcolor"),
+            Cow::from("ApEinfo_fwdcolor"),
             Some(color.hex_str()),
         ));
         qualifiers.push((
-            gb_io::QualifierKey::from("ApEinfo_revcolor"),
+            Cow::from("ApEinfo_revcolor"),
             Some(color.hex_str()),
         ));
 
         features.push(Feature {
-            kind: gb_io::FeatureKind::from("CDS"),
+            kind: Cow::from("CDS"),
             location: loc,
             qualifiers,
         });
@@ -216,7 +217,7 @@ pub fn cluster_to_seq(
 
             // inference
             dom_quals.push((
-                gb_io::QualifierKey::from("inference"),
+                Cow::from("inference"),
                 Some("protein motif".to_string()),
             ));
 
@@ -224,25 +225,25 @@ pub fn cluster_to_seq(
             if let Some(xrefs) = domain.qualifiers.get("db_xref") {
                 for xref in xrefs {
                     dom_quals.push((
-                        gb_io::QualifierKey::from("db_xref"),
+                        Cow::from("db_xref"),
                         Some(xref.clone()),
                     ));
                 }
             }
             for go_term in &domain.go_terms {
                 dom_quals.push((
-                    gb_io::QualifierKey::from("db_xref"),
+                    Cow::from("db_xref"),
                     Some(go_term.accession.clone()),
                 ));
             }
 
             // note
             dom_quals.push((
-                gb_io::QualifierKey::from("note"),
+                Cow::from("note"),
                 Some(format!("e-value: {:e}", domain.i_evalue)),
             ));
             dom_quals.push((
-                gb_io::QualifierKey::from("note"),
+                Cow::from("note"),
                 Some(format!("p-value: {:e}", domain.pvalue)),
             ));
 
@@ -250,7 +251,7 @@ pub fn cluster_to_seq(
             if let Some(funcs) = domain.qualifiers.get("function") {
                 for f in funcs {
                     dom_quals.push((
-                        gb_io::QualifierKey::from("function"),
+                        Cow::from("function"),
                         Some(f.clone()),
                     ));
                 }
@@ -258,12 +259,12 @@ pub fn cluster_to_seq(
 
             // standard_name
             dom_quals.push((
-                gb_io::QualifierKey::from("standard_name"),
+                Cow::from("standard_name"),
                 Some(domain.name.clone()),
             ));
 
             features.push(Feature {
-                kind: gb_io::FeatureKind::from("misc_feature"),
+                kind: Cow::from("misc_feature"),
                 location: dom_loc,
                 qualifiers: dom_quals,
             });
@@ -543,11 +544,11 @@ mod tests {
         assert_eq!(seq.features.len(), 2);
         assert_eq!(
             seq.features[0].kind,
-            gb_io::FeatureKind::from("CDS")
+            Cow::from("CDS")
         );
         assert_eq!(
             seq.features[1].kind,
-            gb_io::FeatureKind::from("misc_feature")
+            Cow::from("misc_feature")
         );
     }
 

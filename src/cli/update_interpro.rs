@@ -523,7 +523,7 @@ fn parse_interpro_xml<R: Read>(
             }
             Ok(Event::Text(ref e)) => {
                 if in_name && in_interpro {
-                    name = e.unescape().unwrap_or_default().to_string();
+                    name = e.xml_content().unwrap_or_default().to_string();
                     in_name = false;
                 }
             }

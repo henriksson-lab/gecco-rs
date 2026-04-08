@@ -246,8 +246,7 @@ impl ClusterCRF {
 
         if shuffle {
             use rand::seq::SliceRandom;
-            use rand::thread_rng;
-            let mut rng = thread_rng();
+            let mut rng = rand::rng();
             sequences.shuffle(&mut rng);
         }
 
