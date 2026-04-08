@@ -1,6 +1,7 @@
 //! The `gecco build-data` subcommand — download HMM databases.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::Args;
@@ -34,7 +35,6 @@ impl BuildDataArgs {
             let cfg = parse_ini(&ini);
 
             let id = cfg.get("id").map(|s| s.as_str()).unwrap_or("Pfam");
-            let version = cfg.get("version").map(|s| s.as_str()).unwrap_or("35.0");
             let md5_expected = cfg.get("md5").cloned();
 
             let h3m_path = output_dir.join(format!("{}.h3m", id));
@@ -42,7 +42,7 @@ impl BuildDataArgs {
             if h3m_path.exists() && !self.force {
                 info!("{:?} already exists, skipping (use --force to re-download)", h3m_path);
             } else {
-                download_hmm(id, version, &h3m_path, md5_expected.as_deref())?;
+                download_hmm(id, &h3m_path, md5_expected.as_deref())?;
             }
 
             // Also create/update the .hmm text version for the hmmer crate
@@ -70,7 +70,7 @@ impl BuildDataArgs {
         } else {
             info!("No Pfam.ini found; downloading default Pfam HMM");
             let h3m_path = output_dir.join("Pfam.h3m");
-            download_hmm("Pfam", "35.0", &h3m_path, None)?;
+            download_hmm("Pfam", &h3m_path, None)?;
         }
 
         // Also download InterPro metadata if missing
@@ -84,7 +84,7 @@ impl BuildDataArgs {
     }
 }
 
-fn download_hmm(id: &str, _version: &str, output: &PathBuf, expected_md5: Option<&str>) -> Result<()> {
+fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>) -> Result<()> {
     // Download pre-built .h3m from GECCO GitHub releases
     let url = format!(
         "https://github.com/zellerlab/GECCO/releases/download/v{}/{}.h3m.gz",
@@ -122,8 +122,7 @@ fn download_hmm(id: &str, _version: &str, output: &PathBuf, expected_md5: Option
     }
 }
 
-fn download_and_decompress(url: &str, output: &PathBuf) -> Result<()> {
-    // Use a simple HTTP GET via std (no extra deps)
+fn download_and_decompress(url: &str, output: &Path) -> Result<()> {
     let response = ureq_get(url)?;
 
     // Decompress gzip
@@ -136,22 +135,22 @@ fn download_and_decompress(url: &str, output: &PathBuf) -> Result<()> {
 }
 
 fn ureq_get(url: &str) -> Result<Vec<u8>> {
-    // Minimal HTTP client using std::process::Command to call curl
-    // (avoids adding an HTTP client dependency)
-    let output = std::process::Command::new("curl")
-        .args(["-fsSL", "--max-time", "300", url])
-        .output()
-        .with_context(|| format!("running curl to download {}", url))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("curl failed for {}: {}", url, stderr.trim());
-    }
-
-    Ok(output.stdout)
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_global(Some(Duration::from_secs(300)))
+            .build(),
+    );
+    let body = agent
+        .get(url)
+        .call()
+        .with_context(|| format!("downloading {}", url))?
+        .into_body()
+        .read_to_vec()
+        .with_context(|| format!("reading response from {}", url))?;
+    Ok(body)
 }
 
-fn download_and_decompress_hmm_filter(url: &str, output: &PathBuf) -> Result<()> {
+fn download_and_decompress_hmm_filter(url: &str, output: &Path) -> Result<()> {
     info!("Downloading and filtering HMMs from source...");
 
     // Load domain whitelist
@@ -206,7 +205,7 @@ fn download_and_decompress_hmm_filter(url: &str, output: &PathBuf) -> Result<()>
     Ok(())
 }
 
-fn md5_file(path: &PathBuf) -> Result<String> {
+fn md5_file(path: &Path) -> Result<String> {
     let data = std::fs::read(path)?;
     Ok(format!("{:x}", md5::compute(&data)))
 }
@@ -215,7 +214,7 @@ fn parse_ini(content: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for line in content.lines() {
         let line = line.trim();
-        if line.starts_with('[') || line.is_empty() {
+        if line.starts_with('[') || line.starts_with('#') || line.starts_with(';') || line.is_empty() {
             continue;
         }
         if let Some((key, val)) = line.split_once('=') {
