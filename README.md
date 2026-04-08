@@ -45,19 +45,175 @@ $ gecco run --genome some_genome.fna -o output_dir --model model.crfsuite
 | `gecco cv` | K-fold or leave-one-type-out cross-validation |
 | `gecco convert` | Format conversion (GenBank, FASTA, GFF3) |
 
-### Key Options
+### Global Options
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-g, --genome` | Input genome (FASTA or GenBank) | required |
+| `-v, --verbose` | Increase verbosity (repeat for more, e.g. `-vv`) | — |
+| `-q, --quiet` | Reduce or disable console output | — |
+
+### `gecco run`
+
+Full pipeline: gene finding, domain annotation, CRF prediction, cluster
+refinement, and type classification.
+
+**Input:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-g, --genome` | Input genome file (FASTA or GenBank) | *required* |
+
+**Gene calling:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-j, --jobs` | Number of threads (0 = auto-detect) | `0` |
+| `-M, --mask` | Mask ambiguous nucleotides to prevent genes stretching across them | off |
+| `--cds-feature` | Extract genes from annotated features instead of de-novo prediction | — |
+| `--locus-tag` | Feature qualifier for naming extracted genes | `locus_tag` |
+
+**Domain annotation:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--hmm` | Path to alternative HMM file(s) (can be repeated) | embedded |
+| `-e, --e-filter` | E-value cutoff for protein domains | — |
+| `-p, --p-filter` | P-value cutoff for protein domains | `1e-9` |
+| `--disentangle` | Disentangle overlapping domains | off |
+
+**Cluster detection:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--model` | Path to alternative CRF model (`.crfsuite` format) | embedded |
+| `--no-pad` | Disable padding of short gene sequences | off |
+| `-c, --cds` | Minimum coding sequences per cluster | `3` |
+| `-m, --threshold` | Probability threshold for cluster membership | `0.8` |
+| `-E, --edge-distance` | Minimum annotated genes separating cluster from sequence edge | `0` |
+| `--no-trim` | Disable trimming genes without domain annotations at cluster edges | off |
+
+**Output:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
 | `-o, --output-dir` | Output directory | `.` |
-| `-j, --jobs` | Number of threads (0 = auto) | `0` |
-| `--model` | CRF model file (`.crfsuite`) | embedded |
-| `-p, --p_filter` | P-value cutoff for domains | `1e-9` |
-| `-m, --threshold` | Cluster membership probability threshold | `0.8` |
-| `-c, --cds` | Minimum annotated CDS per cluster | `3` |
+| `--force-tsv` | Write TSV files even when empty | off |
+| `--merge-gbk` | Single GenBank file for all clusters instead of one per cluster | off |
+| `--antismash-sideload` | Write AntiSMASH v6 sideload JSON file | off |
+
+### `gecco annotate`
+
+Run only gene finding and domain annotation (no cluster prediction).
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-g, --genome` | Input genome file | *required* |
+| `-o, --output-dir` | Output directory | `.` |
+| `-j, --jobs` | Number of threads (0 = auto-detect) | `0` |
 | `-M, --mask` | Mask ambiguous nucleotides | off |
-| `--hmm` | Additional HMM file(s) | none |
+| `--cds-feature` | Extract genes from annotated features | — |
+| `--locus-tag` | Feature qualifier for naming genes | `locus_tag` |
+| `--hmm` | Alternative HMM file(s) | embedded |
+| `-e, --e-filter` | E-value cutoff | — |
+| `-p, --p-filter` | P-value cutoff | `1e-9` |
+| `--disentangle` | Disentangle overlapping domains | off |
+| `--force-tsv` | Write TSV files even when empty | off |
+
+### `gecco predict`
+
+Predict clusters from pre-annotated feature/gene tables.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--genome` | Input genome file (for GenBank output) | *required* |
+| `-g, --genes` | Gene coordinate table (TSV) | *required* |
+| `-f, --features` | Domain annotation table(s) (can be repeated) | *required* |
+| `-o, --output-dir` | Output directory | `.` |
+| `-j, --jobs` | Number of threads (0 = auto-detect) | `0` |
+| `-e, --e-filter` | E-value cutoff | — |
+| `-p, --p-filter` | P-value cutoff | `1e-9` |
+| `--model` | Alternative CRF model | embedded |
+| `--no-pad` | Disable feature padding | off |
+| `-c, --cds` | Minimum coding sequences per cluster | `3` |
+| `-m, --threshold` | Probability threshold | `0.8` |
+| `-E, --edge-distance` | Minimum genes from sequence edge | `0` |
+| `--no-trim` | Disable edge gene trimming | off |
+| `--force-tsv` | Write TSV files even when empty | off |
+| `--merge-gbk` | Single GenBank file for all clusters | off |
+| `--antismash-sideload` | Write AntiSMASH sideload JSON | off |
+
+### `gecco train`
+
+Train a new CRF model from labeled annotation tables.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-g, --genes` | Gene coordinate table (TSV) | *required* |
+| `-f, --features` | Domain annotation table(s) (can be repeated) | *required* |
+| `-c, --clusters` | Cluster annotation table (TSV) | *required* |
+| `-o, --output-dir` | Output directory | `.` |
+| `-e, --e-filter` | E-value cutoff | — |
+| `-p, --p-filter` | P-value cutoff | `1e-9` |
+| `--no-shuffle` | Disable data shuffling before fitting | off |
+| `--seed` | Random number generator seed | `42` |
+| `-W, --window-size` | CRF sliding window length | `5` |
+| `--window-step` | CRF sliding window step | `1` |
+| `--c1` | L1 regularization strength | `0.15` |
+| `--c2` | L2 regularization strength | `0.15` |
+| `--feature-type` | Feature extraction level (`protein` or `domain`) | `protein` |
+| `--select` | Fraction of most significant features to select (0.0–1.0) | all |
+
+### `gecco cv`
+
+Cross-validation for model evaluation. Supports K-fold and Leave-One-Type-Out.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-g, --genes` | Gene coordinate table (TSV) | *required* |
+| `-f, --features` | Domain annotation table(s) (can be repeated) | *required* |
+| `-c, --clusters` | Cluster annotation table (TSV) | *required* |
+| `-o, --output` | Output file path | `cv.tsv` |
+| `-e, --e-filter` | E-value cutoff | — |
+| `-p, --p-filter` | P-value cutoff | `1e-9` |
+| `--no-shuffle` | Disable data shuffling | off |
+| `--seed` | Random number generator seed | `42` |
+| `-W, --window-size` | CRF sliding window length | `5` |
+| `--window-step` | CRF sliding window step | `1` |
+| `--c1` | L1 regularization strength | `0.15` |
+| `--c2` | L2 regularization strength | `0.15` |
+| `--feature-type` | Feature extraction level (`protein` or `domain`) | `protein` |
+| `--select` | Fraction of features to select | all |
+| `--loto` | Use Leave-One-Type-Out instead of K-folds | off |
+| `--splits` | Number of K-fold splits | `10` |
+
+### `gecco convert`
+
+Convert output files to other formats.
+
+**`gecco convert gbk`** — Convert GenBank cluster files:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-i, --input-dir` | Input directory containing `.gbk` files | *required* |
+| `-o, --output-dir` | Output directory | same as input |
+| `-f, --format` | Output format: `bigslice`, `fna`, or `faa` | *required* |
+
+**`gecco convert clusters`** — Convert cluster tables:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-i, --input-dir` | Input directory containing `.clusters.tsv` files | *required* |
+| `-o, --output-dir` | Output directory | same as input |
+| `-f, --format` | Output format: `gff` | *required* |
+
+### `gecco build-data`
+
+Download HMM databases and prepare data files for the pipeline.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-o, --output-dir` | Output directory for data files | `data` |
+| `-f, --force` | Force re-download even if files exist | off |
 
 ## Results
 
