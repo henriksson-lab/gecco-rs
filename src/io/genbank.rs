@@ -134,8 +134,8 @@ fn gene_color(gene: &Gene) -> GeneColor {
 pub fn cluster_to_seq(
     cluster: &Cluster,
     source_seq: Option<&str>,
-    version: &str,
 ) -> Seq {
+    let version = env!("CARGO_PKG_VERSION");
     let now = current_date();
 
     // Extract cluster DNA if source sequence provided
@@ -319,9 +319,8 @@ pub fn write_cluster_gbk(
     writer: impl Write,
     cluster: &Cluster,
     source_seq: Option<&str>,
-    version: &str,
 ) -> Result<()> {
-    let seq = cluster_to_seq(cluster, source_seq, version);
+    let seq = cluster_to_seq(cluster, source_seq);
     seq.write(writer)
         .with_context(|| format!("writing GenBank for cluster {}", cluster.id))
 }
@@ -331,12 +330,11 @@ pub fn write_clusters_merged(
     writer: impl Write,
     clusters: &[Cluster],
     source_seqs: &BTreeMap<String, String>,
-    version: &str,
 ) -> Result<()> {
     let mut w = std::io::BufWriter::new(writer);
     for cluster in clusters {
         let source_seq = source_seqs.get(cluster.source_id()).map(|s| s.as_str());
-        let seq = cluster_to_seq(cluster, source_seq, version);
+        let seq = cluster_to_seq(cluster, source_seq);
         seq.write(&mut w)
             .with_context(|| format!("writing GenBank for cluster {}", cluster.id))?;
     }
@@ -534,7 +532,7 @@ mod tests {
     #[test]
     fn test_cluster_to_seq() {
         let cluster = make_test_cluster();
-        let seq = cluster_to_seq(&cluster, None, "0.1.0");
+        let seq = cluster_to_seq(&cluster, None);
 
         assert_eq!(seq.name.as_deref(), Some("seq1_cluster_1"));
         assert_eq!(seq.topology, Topology::Linear);
@@ -571,7 +569,7 @@ mod tests {
         let cluster = make_test_cluster();
         let source = "A".repeat(500);
         let mut buf = Vec::new();
-        write_cluster_gbk(&mut buf, &cluster, Some(&source), "0.1.0").unwrap();
+        write_cluster_gbk(&mut buf, &cluster, Some(&source)).unwrap();
         let output = String::from_utf8(buf).unwrap();
 
         assert!(output.contains("LOCUS"));

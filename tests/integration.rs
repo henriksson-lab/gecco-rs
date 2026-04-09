@@ -836,3 +836,274 @@ fn test_filter_by_evalue() {
     assert_eq!(genes[0].protein.domains.len(), 1);
     assert_eq!(genes[0].protein.domains[0].name, "good");
 }
+
+// ---------------------------------------------------------------------------
+// Merged GenBank output test
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_genbank_merged_output() {
+    use gecco::io::genbank::write_clusters_merged;
+
+    // Two clusters on different source sequences.
+    let cluster1 = Cluster {
+        id: "seq1_cluster_1".to_string(),
+        genes: vec![
+            make_gene(
+                "seq1", "seq1_1", 100, 400, Strand::Coding,
+                vec![make_domain("PF00394", 10, 50, Some(0.95))],
+                Some(0.9),
+            ),
+            make_gene(
+                "seq1", "seq1_2", 500, 800, Strand::Coding,
+                vec![make_domain("PF07690", 5, 30, Some(0.80))],
+                Some(0.85),
+            ),
+        ],
+        cluster_type: Some(ClusterType::new(["Polyketide"])),
+        type_probabilities: {
+            let mut m = BTreeMap::new();
+            m.insert("Polyketide".to_string(), 0.96);
+            m.insert("NRP".to_string(), 0.14);
+            m
+        },
+    };
+
+    let cluster2 = Cluster {
+        id: "seq2_cluster_1".to_string(),
+        genes: vec![make_gene(
+            "seq2", "seq2_1", 200, 600, Strand::Reverse,
+            vec![make_domain("PF00109", 15, 60, Some(0.88))],
+            Some(0.92),
+        )],
+        cluster_type: Some(ClusterType::new(["NRP"])),
+        type_probabilities: {
+            let mut m = BTreeMap::new();
+            m.insert("NRP".to_string(), 0.91);
+            m.insert("Polyketide".to_string(), 0.05);
+            m
+        },
+    };
+
+    let mut source_seqs = BTreeMap::new();
+    source_seqs.insert("seq1".to_string(), "A".repeat(1000));
+    source_seqs.insert("seq2".to_string(), "C".repeat(1000));
+
+    let mut buf = Vec::new();
+    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs, "0.1.0")
+        .unwrap();
+    let output = String::from_utf8(buf).unwrap();
+
+    // Should contain two LOCUS entries (one per cluster).
+    assert_eq!(
+        output.matches("LOCUS").count(), 2,
+        "merged output should contain exactly 2 LOCUS entries"
+    );
+
+    // Both cluster IDs present.
+    assert!(output.contains("seq1_cluster_1"));
+    assert!(output.contains("seq2_cluster_1"));
+
+    // Both have structured GECCO comments.
+    assert_eq!(output.matches("GECCO-Data-START").count(), 2);
+    assert_eq!(output.matches("GECCO-Data-END").count(), 2);
+
+    // Cluster types present.
+    assert!(output.contains("Polyketide"));
+    assert!(output.contains("NRP"));
+
+    // Both have CDS features.
+    // cluster1 has 2 genes, cluster2 has 1 gene => 3 CDS total.
+    assert_eq!(
+        output.matches("\n     CDS ").count(), 3,
+        "expected 3 CDS features total"
+    );
+
+    // Both have misc_feature for domains.
+    assert!(output.contains("PF00394"));
+    assert!(output.contains("PF07690"));
+    assert!(output.contains("PF00109"));
+
+    // Version string present in both records.
+    assert_eq!(output.matches("GECCO v0.1.0").count(), 2);
+
+    // Each record is terminated by //.
+    assert_eq!(
+        output.matches("\n//\n").count(), 2,
+        "each GenBank record should end with //"
+    );
+}
+
+/// Run Python GECCO to produce merged GenBank output and compare against Rust.
+///
+/// This test requires Python GECCO to be installed (`pip install -e GECCO/`).
+/// It is ignored by default; run with `cargo test -- --ignored` to execute.
+#[test]
+#[ignore]
+fn test_genbank_merged_matches_python() {
+    use gecco::io::genbank::write_clusters_merged;
+    use std::path::Path;
+
+    let script_path = Path::new("tests/data/gen_merged_gbk.py");
+    if !script_path.exists() {
+        panic!("Python helper script not found: {}", script_path.display());
+    }
+
+    // Run Python script to generate reference merged GenBank.
+    let py_output = std::process::Command::new("python3")
+        .arg(script_path)
+        .output()
+        .expect("failed to run python3");
+
+    if !py_output.status.success() {
+        let stderr = String::from_utf8_lossy(&py_output.stderr);
+        panic!("Python script failed:\n{}", stderr);
+    }
+
+    let py_gbk = String::from_utf8(py_output.stdout)
+        .expect("Python output is not valid UTF-8");
+
+    // Build equivalent clusters in Rust.
+    let cluster1 = Cluster {
+        id: "seq1_cluster_1".to_string(),
+        genes: vec![make_gene(
+            "seq1", "seq1_1", 100, 400, Strand::Coding,
+            vec![make_domain("PF00394", 10, 50, None)],
+            Some(0.9),
+        )],
+        cluster_type: Some(ClusterType::new(["Polyketide"])),
+        type_probabilities: {
+            let mut m = BTreeMap::new();
+            m.insert("Polyketide".to_string(), 0.96);
+            m
+        },
+    };
+
+    let cluster2 = Cluster {
+        id: "seq2_cluster_1".to_string(),
+        genes: vec![make_gene(
+            "seq2", "seq2_1", 200, 600, Strand::Reverse,
+            vec![make_domain("PF00109", 15, 60, None)],
+            Some(0.85),
+        )],
+        cluster_type: Some(ClusterType::new(["NRP"])),
+        type_probabilities: {
+            let mut m = BTreeMap::new();
+            m.insert("NRP".to_string(), 0.91);
+            m
+        },
+    };
+
+    let mut source_seqs = BTreeMap::new();
+    source_seqs.insert("seq1".to_string(), "A".repeat(1000));
+    source_seqs.insert("seq2".to_string(), "C".repeat(1000));
+
+    let mut buf = Vec::new();
+    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs, "0.1.0")
+        .unwrap();
+    let rs_gbk = String::from_utf8(buf).unwrap();
+
+    // Extract sections from both outputs for structured comparison.
+    // Rather than line-by-line (fragile due to formatting), compare key sections.
+    let count_occurrences = |s: &str, pat: &str| -> usize {
+        s.matches(pat).count()
+    };
+
+    // --- Structural checks: same number of records ---
+    assert_eq!(
+        count_occurrences(&py_gbk, "\n//\n"),
+        count_occurrences(&rs_gbk, "\n//\n"),
+        "different number of GenBank records"
+    );
+
+    // --- Both contain the same cluster IDs ---
+    assert!(py_gbk.contains("seq1_cluster_1") && rs_gbk.contains("seq1_cluster_1"));
+    assert!(py_gbk.contains("seq2_cluster_1") && rs_gbk.contains("seq2_cluster_1"));
+
+    // --- Same number of CDS and misc_feature entries ---
+    assert_eq!(
+        count_occurrences(&py_gbk, "\n     CDS "),
+        count_occurrences(&rs_gbk, "\n     CDS "),
+        "different number of CDS features"
+    );
+    assert_eq!(
+        count_occurrences(&py_gbk, "\n     misc_feature"),
+        count_occurrences(&rs_gbk, "\n     misc_feature"),
+        "different number of misc_feature entries"
+    );
+
+    // --- Same domain accessions present ---
+    assert!(py_gbk.contains("PF00394") && rs_gbk.contains("PF00394"));
+    assert!(py_gbk.contains("PF00109") && rs_gbk.contains("PF00109"));
+
+    // --- Same cluster types in structured comments ---
+    assert!(py_gbk.contains("Polyketide") && rs_gbk.contains("Polyketide"));
+    assert!(py_gbk.contains("NRP") && rs_gbk.contains("NRP"));
+
+    // --- Same non-zero probabilities ---
+    assert!(py_gbk.contains("polyketide_probability") && rs_gbk.contains("polyketide_probability"));
+    assert!(py_gbk.contains("nrp_probability") && rs_gbk.contains("nrp_probability"));
+
+    // --- GECCO-Data structured comments in both records ---
+    assert_eq!(count_occurrences(&py_gbk, "GECCO-Data-START"), 2);
+    assert_eq!(count_occurrences(&rs_gbk, "GECCO-Data-START"), 2);
+
+    // --- Same ORIGIN sequence content (case-insensitive) ---
+    // Extract ORIGIN blocks and compare ignoring case and whitespace.
+    let extract_origins = |s: &str| -> Vec<String> {
+        let mut origins = Vec::new();
+        let mut in_origin = false;
+        let mut current = String::new();
+        for line in s.lines() {
+            if line.starts_with("ORIGIN") {
+                in_origin = true;
+                current.clear();
+            } else if line.starts_with("//") {
+                if in_origin {
+                    origins.push(current.clone());
+                    in_origin = false;
+                }
+            } else if in_origin {
+                // Strip line numbers and spaces, keep only sequence chars.
+                let seq: String = line.chars()
+                    .filter(|c| c.is_alphabetic())
+                    .collect();
+                current.push_str(&seq.to_lowercase());
+            }
+        }
+        origins
+    };
+
+    let py_origins = extract_origins(&py_gbk);
+    let rs_origins = extract_origins(&rs_gbk);
+    assert_eq!(py_origins.len(), rs_origins.len(), "different number of ORIGIN blocks");
+    for (i, (py_seq, rs_seq)) in py_origins.iter().zip(rs_origins.iter()).enumerate() {
+        assert_eq!(
+            py_seq, rs_seq,
+            "ORIGIN sequence differs for record {} (py len={}, rs len={})",
+            i, py_seq.len(), rs_seq.len()
+        );
+    }
+
+    // --- Report remaining formatting differences for visibility ---
+    // This does not fail the test, just prints diffs for review.
+    let py_lines: Vec<&str> = py_gbk.lines().collect();
+    let rs_lines: Vec<&str> = rs_gbk.lines().collect();
+    let max_len = py_lines.len().max(rs_lines.len());
+    let mut diffs = Vec::new();
+    for i in 0..max_len {
+        let py_line = py_lines.get(i).copied().unwrap_or("<missing>");
+        let rs_line = rs_lines.get(i).copied().unwrap_or("<missing>");
+        if py_line != rs_line {
+            diffs.push(format!("  line {:3}: py: {}", i + 1, py_line));
+            diffs.push(format!("           rs: {}", rs_line));
+        }
+    }
+    if !diffs.is_empty() {
+        eprintln!(
+            "\n=== Formatting differences ({} lines differ, not failing) ===\n{}",
+            diffs.len() / 2,
+            diffs.join("\n")
+        );
+    }
+}

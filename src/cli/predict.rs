@@ -145,7 +145,7 @@ impl PredictArgs {
         info!("Predicting cluster probabilities");
         let data_dir = data_dir::resolve(self.data_dir.as_ref());
         let crf_model = super::run::load_crf_model(&self.model, &data_dir)?;
-        let mut crf = ClusterCRF::new("protein", 5, 1);
+        let mut crf = ClusterCRF::new("protein", 20, 1);
         crf.set_model(Box::new(crf_model));
         genes = crf.predict_probabilities(&genes, !self.no_pad, None)?;
 
@@ -215,7 +215,6 @@ impl PredictArgs {
                 std::fs::File::create(&gbk_path)?,
                 &clusters,
                 &source_seqs,
-                env!("CARGO_PKG_VERSION"),
             )?;
         } else {
             for cluster in &clusters {
@@ -225,7 +224,6 @@ impl PredictArgs {
                     std::fs::File::create(&gbk_path)?,
                     cluster,
                     source_seq,
-                    env!("CARGO_PKG_VERSION"),
                 )?;
             }
         }
