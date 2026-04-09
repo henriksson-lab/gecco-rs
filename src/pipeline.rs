@@ -17,14 +17,16 @@
 //!     seq: std::fs::read_to_string("genome.fna").unwrap(),
 //! }];
 //!
-//! let clusters = pipeline.scan(&records).unwrap();
-//! for cluster in &clusters {
+//! let results = pipeline.scan(&records).unwrap();
+//! for cluster in &results.clusters {
 //!     println!("{}: {} genes, type={:?}",
 //!         cluster.id, cluster.genes.len(), cluster.cluster_type);
 //! }
 //! ```
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use log::info;
@@ -34,9 +36,52 @@ use crate::crf::ClusterCRF;
 use crate::data_dir;
 use crate::hmmer::{self, PyHMMER, HMM, LoadedHMM};
 use crate::interpro::InterPro;
+use crate::io::{genbank, tables::{ClusterTable, FeatureTable, GeneTable}};
 use crate::model::{Cluster, Gene};
 use crate::orf::{ProdigalFinder, SeqRecord, ORFFinder};
 use crate::refine::ClusterRefiner;
+
+/// Results from a GECCO pipeline run.
+pub struct GeccoResults {
+    /// Annotated genes with cluster probabilities.
+    pub genes: Vec<Gene>,
+    /// Predicted biosynthetic gene clusters.
+    pub clusters: Vec<Cluster>,
+    /// Source sequences (for GenBank output). Empty if not available.
+    pub source_seqs: BTreeMap<String, String>,
+}
+
+impl GeccoResults {
+    /// Write the gene table (TSV) to a writer.
+    pub fn write_gene_table(&self, writer: impl Write) -> Result<()> {
+        GeneTable::write_from_genes(writer, &self.genes)
+    }
+
+    /// Write the feature/domain table (TSV) to a writer.
+    pub fn write_feature_table(&self, writer: impl Write) -> Result<()> {
+        FeatureTable::write_from_genes(writer, &self.genes)
+    }
+
+    /// Write the cluster table (TSV) to a writer.
+    pub fn write_cluster_table(&self, writer: impl Write) -> Result<()> {
+        ClusterTable::write_from_clusters(writer, &self.clusters)
+    }
+
+    /// Write each cluster as a separate GenBank file in the given directory.
+    pub fn write_cluster_gbks(&self, dir: &Path) -> Result<()> {
+        for cluster in &self.clusters {
+            let path = dir.join(format!("{}.gbk", cluster.id));
+            let source_seq = self.source_seqs.get(cluster.source_id()).map(|s| s.as_str());
+            genbank::write_cluster_gbk(std::fs::File::create(&path)?, cluster, source_seq)?;
+        }
+        Ok(())
+    }
+
+    /// Write all clusters into a single merged GenBank file.
+    pub fn write_clusters_merged_gbk(&self, writer: impl Write) -> Result<()> {
+        genbank::write_clusters_merged(writer, &self.clusters, &self.source_seqs)
+    }
+}
 
 /// Builder for constructing a [`Gecco`] with custom settings.
 pub struct GeccoBuilder {
@@ -79,7 +124,7 @@ impl Default for GeccoBuilder {
             edge_distance: 0,
             trim: true,
             pad: true,
-            window_size: 5,
+            window_size: 20,
             feature_type: "protein".to_string(),
         }
     }
@@ -187,7 +232,7 @@ impl GeccoBuilder {
         self
     }
 
-    /// CRF sliding window size (default: 5).
+    /// CRF sliding window size (default: 20).
     pub fn window_size(mut self, v: usize) -> Self {
         self.window_size = v;
         self
@@ -318,49 +363,42 @@ impl Gecco {
         GeccoBuilder::default()
     }
 
-    /// Run the full pipeline on the given sequences, returning predicted gene clusters.
+    /// Run the full pipeline on the given sequences, returning a [`GeccoResults`].
     ///
     /// Steps: gene finding → domain annotation → CRF prediction → cluster refinement.
-    pub fn scan(&self, records: &[SeqRecord]) -> Result<Vec<Cluster>> {
-        // 1. Gene finding
+    pub fn scan(&self, records: &[SeqRecord]) -> Result<GeccoResults> {
+        let source_seqs: BTreeMap<String, String> = records
+            .iter()
+            .map(|r| (r.id.clone(), r.seq.clone()))
+            .collect();
+
         let mut genes = self.find_genes(records)?;
         if genes.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // 2. Domain annotation
-        self.annotate_domains(&mut genes)?;
-
-        // 3. CRF prediction
-        let genes = self.predict_probabilities(&genes)?;
-
-        // 4. Cluster refinement
-        Ok(self.extract_clusters(&genes))
-    }
-
-    /// Run the full pipeline, also returning the annotated genes alongside clusters.
-    ///
-    /// Useful when you need both gene-level probabilities and cluster predictions.
-    pub fn scan_detailed(&self, records: &[SeqRecord]) -> Result<(Vec<Gene>, Vec<Cluster>)> {
-        let mut genes = self.find_genes(records)?;
-        if genes.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(GeccoResults {
+                genes: Vec::new(),
+                clusters: Vec::new(),
+                source_seqs,
+            });
         }
 
         self.annotate_domains(&mut genes)?;
         let genes = self.predict_probabilities(&genes)?;
         let clusters = self.extract_clusters(&genes);
-        Ok((genes, clusters))
+        Ok(GeccoResults { genes, clusters, source_seqs })
     }
 
     /// Run the pipeline from pre-annotated genes (skipping gene finding and HMMER).
     ///
     /// Use this when you already have genes with domain annotations, e.g. loaded
     /// from a features TSV file.
-    pub fn predict_from_genes(&self, genes: &[Gene]) -> Result<(Vec<Gene>, Vec<Cluster>)> {
+    pub fn predict_from_genes(&self, genes: &[Gene]) -> Result<GeccoResults> {
         let genes = self.predict_probabilities(genes)?;
         let clusters = self.extract_clusters(&genes);
-        Ok((genes, clusters))
+        Ok(GeccoResults {
+            genes,
+            clusters,
+            source_seqs: BTreeMap::new(),
+        })
     }
 
     // -- individual pipeline stages, exposed for advanced use --

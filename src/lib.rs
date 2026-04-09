@@ -22,8 +22,8 @@
 //!     seq: "ATGCCC...".into(),
 //! }];
 //!
-//! let clusters = pipeline.scan(&records).unwrap();
-//! for cluster in &clusters {
+//! let results = pipeline.scan(&records).unwrap();
+//! for cluster in &results.clusters {
 //!     println!("{}: {} genes", cluster.id, cluster.genes.len());
 //! }
 //! ```
@@ -48,4 +48,4 @@ pub mod data_dir;
 // Re-export key types at crate root for convenience.
 pub use model::{Cluster, Gene, Domain, Protein};
 pub use orf::SeqRecord;
-pub use pipeline::{Gecco, GeccoBuilder};
+pub use pipeline::{Gecco, GeccoBuilder, GeccoResults};
