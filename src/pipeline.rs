@@ -3,10 +3,10 @@
 //! # Example
 //!
 //! ```no_run
-//! use gecco::pipeline::Pipeline;
+//! use gecco::pipeline::Gecco;
 //! use gecco::orf::SeqRecord;
 //!
-//! let pipeline = Pipeline::builder()
+//! let pipeline = Gecco::builder()
 //!     .data_dir("gecco_data")
 //!     .threshold(0.8)
 //!     .build()
@@ -32,14 +32,14 @@ use log::info;
 use crate::crf::backend::CrfSuiteModel;
 use crate::crf::ClusterCRF;
 use crate::data_dir;
-use crate::hmmer::{self, DomainAnnotator, PyHMMER, HMM};
+use crate::hmmer::{self, PyHMMER, HMM, LoadedHMM};
 use crate::interpro::InterPro;
 use crate::model::{Cluster, Gene};
 use crate::orf::{ProdigalFinder, SeqRecord, ORFFinder};
 use crate::refine::ClusterRefiner;
 
-/// Builder for constructing a [`Pipeline`] with custom settings.
-pub struct PipelineBuilder {
+/// Builder for constructing a [`Gecco`] with custom settings.
+pub struct GeccoBuilder {
     data_dir: Option<PathBuf>,
     crf_model_path: Option<PathBuf>,
     hmm_configs: Vec<HMM>,
@@ -60,7 +60,7 @@ pub struct PipelineBuilder {
     feature_type: String,
 }
 
-impl Default for PipelineBuilder {
+impl Default for GeccoBuilder {
     fn default() -> Self {
         Self {
             data_dir: None,
@@ -85,7 +85,7 @@ impl Default for PipelineBuilder {
     }
 }
 
-impl PipelineBuilder {
+impl GeccoBuilder {
     /// Set the data directory containing default HMM, CRF model, and InterPro files.
     ///
     /// When set, the builder will automatically load default files from this directory
@@ -203,7 +203,7 @@ impl PipelineBuilder {
     ///
     /// If no CRF model, HMM, or InterPro path was explicitly set, the builder
     /// will look for default files in the data directory.
-    pub fn build(self) -> Result<Pipeline> {
+    pub fn build(self) -> Result<Gecco> {
         let resolved_data_dir = data_dir::resolve(self.data_dir.as_ref());
 
         // CRF model: explicit path > data_dir default
@@ -260,9 +260,18 @@ impl PipelineBuilder {
             }
         };
 
-        Ok(Pipeline {
+        // Load HMM profiles into memory
+        let mut loaded_hmms = Vec::with_capacity(hmms.len());
+        for hmm_config in hmms {
+            let annotator = PyHMMER::new(hmm_config.clone());
+            let profiles = annotator.load_hmms()
+                .with_context(|| format!("loading HMM profiles from {:?}", hmm_config.path))?;
+            loaded_hmms.push(LoadedHMM { meta: hmm_config, profiles });
+        }
+
+        Ok(Gecco {
             crf_model,
-            hmms,
+            hmms: loaded_hmms,
             interpro,
             metagenome: self.metagenome,
             mask: self.mask,
@@ -283,10 +292,10 @@ impl PipelineBuilder {
 
 /// A configured GECCO pipeline that can scan sequences for biosynthetic gene clusters.
 ///
-/// Use [`Pipeline::builder()`] to construct one.
-pub struct Pipeline {
+/// Use [`Gecco::builder()`] to construct one.
+pub struct Gecco {
     crf_model: CrfSuiteModel,
-    hmms: Vec<HMM>,
+    hmms: Vec<LoadedHMM>,
     interpro: InterPro,
     metagenome: bool,
     mask: bool,
@@ -303,10 +312,10 @@ pub struct Pipeline {
     feature_type: String,
 }
 
-impl Pipeline {
-    /// Create a new [`PipelineBuilder`].
-    pub fn builder() -> PipelineBuilder {
-        PipelineBuilder::default()
+impl Gecco {
+    /// Create a new [`GeccoBuilder`].
+    pub fn builder() -> GeccoBuilder {
+        GeccoBuilder::default()
     }
 
     /// Run the full pipeline on the given sequences, returning predicted gene clusters.
@@ -375,9 +384,9 @@ impl Pipeline {
     /// Domains are appended to each gene's `protein.domains` in place.
     pub fn annotate_domains(&self, genes: &mut Vec<Gene>) -> Result<()> {
         info!("Annotating protein domains ({} HMM databases)", self.hmms.len());
-        for hmm_config in &self.hmms {
-            let annotator = PyHMMER::new(hmm_config.clone());
-            annotator.run(genes, &self.interpro, None)?;
+        for loaded in &self.hmms {
+            let annotator = PyHMMER::new(loaded.meta.clone());
+            annotator.run_with_profiles(genes, &self.interpro, &loaded.profiles, None)?;
         }
 
         if self.disentangle {

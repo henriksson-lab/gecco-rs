@@ -108,6 +108,12 @@ pub trait DomainAnnotator {
     ) -> Result<()>;
 }
 
+/// A loaded HMM database: metadata + parsed profiles ready for search.
+pub struct LoadedHMM {
+    pub meta: HMM,
+    pub profiles: Vec<hmmer::core::Hmm>,
+}
+
 /// Domain annotator using the pure-Rust hmmer crate.
 pub struct PyHMMER {
     pub hmm: HMM,
@@ -136,7 +142,7 @@ impl PyHMMER {
 
     /// Load and optionally filter HMM profiles from the database file.
     /// Supports text `.hmm`, binary `.h3m`, and gzipped variants.
-    fn load_hmms(&self) -> Result<Vec<hmmer::core::Hmm>> {
+    pub fn load_hmms(&self) -> Result<Vec<hmmer::core::Hmm>> {
         let path_str = self.hmm.path.to_string_lossy();
 
         // Try binary .h3m format first
@@ -200,19 +206,19 @@ impl PyHMMER {
     }
 }
 
-impl DomainAnnotator for PyHMMER {
-    fn run(
+impl PyHMMER {
+    /// Run domain annotation using pre-loaded HMM profiles.
+    pub fn run_with_profiles(
         &self,
         genes: &mut [Gene],
         interpro: &InterPro,
+        profiles: &[hmmer::core::Hmm],
         progress: Option<&dyn Fn(usize, usize)>,
     ) -> Result<()> {
         if genes.is_empty() {
             return Ok(());
         }
 
-        // Step 1: Convert gene proteins to digital sequences.
-        // Name each sequence by its index so we can map hits back to genes.
         let abc = hmmer::alphabet::Alphabet::amino();
         let mut seqs = Vec::with_capacity(genes.len());
         for (idx, gene) in genes.iter().enumerate() {
@@ -231,34 +237,37 @@ impl DomainAnnotator for PyHMMER {
             seqs.push(seq);
         }
 
-        // Step 2: Load HMM profiles
-        let hmms = self.load_hmms()?;
-        let total_hmms = hmms.len();
+        let total_hmms = profiles.len();
 
+        self.run_search(genes, interpro, profiles, total_hmms, &seqs, progress)
+    }
+
+    fn run_search(
+        &self,
+        genes: &mut [Gene],
+        interpro: &InterPro,
+        hmms: &[hmmer::core::Hmm],
+        total_hmms: usize,
+        seqs: &[hmmer::alphabet::DigitalSequence],
+        progress: Option<&dyn Fn(usize, usize)>,
+    ) -> Result<()> {
         if let Some(cb) = progress {
             cb(0, total_hmms);
         }
 
-        // The Z parameter for E-value calculation.
-        // GECCO uses hmm.size (total # of HMMs in database) rather than
-        // number of sequences. We'll recompute E-values after search.
         let z_database = self.hmm.size.unwrap_or(total_hmms) as f64;
         let z_seqs = seqs.len() as f64;
 
-        // Step 3: Run hmmsearch in parallel over HMM profiles.
-        // Each HMM is searched against all sequences independently.
-        // Results collected as (gene_idx, Domain) pairs, then merged.
         let config = hmmer::pipeline::PipelineConfig::default();
         let hmm_id = &self.hmm.id;
         let hmm_meta = &self.hmm;
 
         use rayon::prelude::*;
 
-        // Parallel search over all HMMs
         let all_domains: Vec<(usize, Domain)> = hmms
             .par_iter()
             .flat_map(|hmm_profile| {
-                let (hits, _stats) = hmmer::pipeline::hmmsearch(hmm_profile, &seqs, &config);
+                let (hits, _stats) = hmmer::pipeline::hmmsearch(hmm_profile, seqs, &config);
 
                 let raw_acc = hmm_profile
                     .acc
@@ -328,7 +337,6 @@ impl DomainAnnotator for PyHMMER {
             })
             .collect();
 
-        // Merge domains into genes
         for (gene_idx, domain) in all_domains {
             if gene_idx < genes.len() {
                 genes[gene_idx].protein.domains.push(domain);
@@ -343,6 +351,42 @@ impl DomainAnnotator for PyHMMER {
         );
 
         Ok(())
+    }
+}
+
+impl DomainAnnotator for PyHMMER {
+    fn run(
+        &self,
+        genes: &mut [Gene],
+        interpro: &InterPro,
+        progress: Option<&dyn Fn(usize, usize)>,
+    ) -> Result<()> {
+        if genes.is_empty() {
+            return Ok(());
+        }
+
+        let abc = hmmer::alphabet::Alphabet::amino();
+        let mut seqs = Vec::with_capacity(genes.len());
+        for (idx, gene) in genes.iter().enumerate() {
+            let seq = hmmer::alphabet::DigitalSequence::new(
+                &idx.to_string(),
+                "",
+                gene.protein.seq.as_bytes(),
+                &abc,
+            )
+            .with_context(|| {
+                format!(
+                    "digitizing protein sequence for gene {}",
+                    gene.protein.id
+                )
+            })?;
+            seqs.push(seq);
+        }
+
+        let hmms = self.load_hmms()?;
+        let total_hmms = hmms.len();
+
+        self.run_search(genes, interpro, &hmms, total_hmms, &seqs, progress)
     }
 }
 

@@ -5,13 +5,13 @@
 //!
 //! # Library usage
 //!
-//! The easiest way to use GECCO as a library is through the [`Pipeline`] struct:
+//! The easiest way to use GECCO as a library is through the [`Gecco`] struct:
 //!
 //! ```no_run
-//! use gecco::Pipeline;
+//! use gecco::Gecco;
 //! use gecco::orf::SeqRecord;
 //!
-//! let pipeline = Pipeline::builder()
+//! let pipeline = Gecco::builder()
 //!     .data_dir("gecco_data")
 //!     .threshold(0.8)
 //!     .build()
@@ -29,7 +29,7 @@
 //! ```
 //!
 //! For finer control, individual pipeline stages are also available as public
-//! methods on [`Pipeline`], or through the lower-level modules directly.
+//! methods on [`Gecco`], or through the lower-level modules directly.
 
 pub mod model;
 pub mod interpro;
@@ -41,10 +41,11 @@ pub mod refine;
 pub mod types;
 pub mod util;
 pub mod pipeline;
+#[cfg(feature = "cli")]
 pub mod cli;
 pub mod data_dir;
 
 // Re-export key types at crate root for convenience.
 pub use model::{Cluster, Gene, Domain, Protein};
 pub use orf::SeqRecord;
-pub use pipeline::{Pipeline, PipelineBuilder};
+pub use pipeline::{Gecco, GeccoBuilder};

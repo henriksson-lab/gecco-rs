@@ -11,6 +11,15 @@ This port replaces all Python dependencies with native Rust crates, yielding
 significant speedups (see [Benchmarks](#benchmarks) below) while preserving
 compatibility with the original GECCO models and data formats.
 
+This is not the authorative version of GECCO. It is designed to give bit-wise the same answer as the Python version.
+
+Advantages of GECCO-RS over the Python version are:
+* Generally faster
+* Especially faster if you need to keep calling it in a loop, since the database is only loaded once
+* Possible to embed in webpages (webassembly)
+* Type-safe interface when integrating in bigger projects; no need for intermediate files
+
+
 ## Building
 
 GECCO-RS requires a Rust toolchain (1.70+). Build with:
@@ -230,6 +239,99 @@ Download HMM databases and prepare data files for the pipeline.
 |------|-------------|---------|
 | `-o, --output-dir` | Output directory for data files | `gecco_data` |
 | `-f, --force` | Force re-download even if files exist | off |
+
+## Library Usage
+
+GECCO-RS can be used as a Rust library. Add it to your `Cargo.toml`:
+
+```toml
+[dependencies]
+gecco = { version = "0.4", default-features = false }
+```
+
+This pulls in only the core library without CLI dependencies (`clap`, `ureq`, etc.).
+
+Then use the `Gecco` API to scan sequences for biosynthetic gene clusters:
+
+```rust
+use gecco::Gecco;
+use gecco::orf::SeqRecord;
+
+fn main() -> anyhow::Result<()> {
+    // Build a pipeline — data directory is resolved automatically:
+    //   1. GECCO_DATA_DIR env var
+    //   2. gecco_data/ next to the binary
+    //   3. gecco_data/ in the current working directory
+    let pipeline = Gecco::builder()
+        .threshold(0.8)
+        .build()?;
+
+    // Load your sequences (e.g. from a FASTA file)
+    let records = vec![SeqRecord {
+        id: "contig_1".into(),
+        seq: std::fs::read_to_string("genome.fna")?,
+    }];
+
+    // Run the full pipeline: gene finding → annotation → CRF → clustering
+    let clusters = pipeline.scan(&records)?;
+    for cluster in &clusters {
+        println!("{}: {} genes, type={}",
+            cluster.id, cluster.genes.len(), cluster.cluster_type);
+    }
+
+    Ok(())
+}
+```
+
+For more control, use `scan_detailed` to also get per-gene probabilities, or run individual stages separately:
+
+```rust
+// Get both genes (with probabilities) and clusters
+let (genes, clusters) = pipeline.scan_detailed(&records)?;
+
+for gene in &genes {
+    println!("{}: p={:.3}", gene.id, gene.average_p.unwrap_or(0.0));
+}
+
+// Or run stages individually:
+let mut genes = pipeline.find_genes(&records)?;
+pipeline.annotate_domains(&mut genes)?;
+let genes = pipeline.predict_probabilities(&genes)?;
+let clusters = pipeline.extract_clusters(&genes);
+```
+
+To write output files (same formats as the CLI), use the I/O functions:
+
+```rust
+use std::fs::File;
+use gecco::io::tables::{ClusterTable, GeneTable, FeatureTable};
+use gecco::io::genbank::write_cluster_gbk;
+
+let (genes, clusters) = pipeline.scan_detailed(&records)?;
+
+// Write TSV tables
+GeneTable::write_from_genes(File::create("output.genes.tsv")?, &genes)?;
+FeatureTable::write_from_genes(File::create("output.features.tsv")?, &genes)?;
+ClusterTable::write_from_clusters(File::create("output.clusters.tsv")?, &clusters)?;
+
+// Write GenBank files (one per cluster)
+for cluster in &clusters {
+    let f = File::create(format!("{}.gbk", cluster.id))?;
+    write_cluster_gbk(f, cluster, None, env!("CARGO_PKG_VERSION"))?;
+}
+```
+
+The builder supports many options — see the [GeccoBuilder](src/pipeline.rs) source for the full list:
+
+```rust
+let pipeline = Gecco::builder()
+    .data_dir("/opt/gecco_data")
+    .threshold(0.6)          // lower threshold → more clusters
+    .jobs(4)                 // parallel threads
+    .p_filter(1e-6)          // relaxed domain filtering
+    .mask(true)              // mask ambiguous nucleotides
+    .build()?;
+```
 
 ## Results
 

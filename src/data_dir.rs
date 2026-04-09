@@ -4,6 +4,7 @@
 //! 1. Explicit path (from `--data-dir` CLI flag or library API)
 //! 2. `GECCO_DATA_DIR` environment variable
 //! 3. `gecco_data/` next to the running binary
+//! 4. `gecco_data/` in the current working directory
 
 use std::path::PathBuf;
 
@@ -27,11 +28,14 @@ pub fn resolve(explicit: Option<&PathBuf>) -> PathBuf {
     // Next to the binary
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            return parent.join(DEFAULT_DIR_NAME);
+            let candidate = parent.join(DEFAULT_DIR_NAME);
+            if candidate.is_dir() {
+                return candidate;
+            }
         }
     }
 
-    // Last resort: current directory
+    // Current working directory
     PathBuf::from(DEFAULT_DIR_NAME)
 }
 

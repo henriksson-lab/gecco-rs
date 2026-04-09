@@ -1,6 +1,6 @@
 [package]
 name = "gecco"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
@@ -9,6 +9,7 @@ autobenches = false
 [[bin]]
 name = "gecco"
 path = "src/main.rs"
+required-features = ["cli"]
 
 [[bin]]
 name = "bench_pipeline"
@@ -21,6 +22,8 @@ path = "benches/bench_full.rs"
 required-features = ["bench"]
 
 [features]
+default = ["cli"]
+cli = ["clap", "indicatif", "ureq", "env_logger"]
 bench = []
 
 [dependencies]
@@ -46,18 +49,18 @@ bincode = "2"
 flate2 = "1.0"
 quick-xml = "0.39"
 
-# CLI
-clap = { version = "4", features = ["derive"] }
-indicatif = "0.18"
+# CLI (optional)
+clap = { version = "4", features = ["derive"], optional = true }
+indicatif = { version = "0.18", optional = true }
 
 # Utility
 rayon = "1.10"
 rand = "0.9"
 anyhow = "1"
 md5 = "0.8"
-ureq = "3"
+ureq = { version = "3", optional = true }
 log = "0.4"
-env_logger = "0.11"
+env_logger = { version = "0.11", optional = true }
 thiserror = "2"
 regex-lite = "0.1"
 
