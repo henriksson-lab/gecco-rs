@@ -254,6 +254,8 @@ This pulls in only the core library without CLI dependencies (`clap`, `ureq`, et
 Then use the `Gecco` API to scan sequences for biosynthetic gene clusters:
 
 ```rust
+use std::fs::File;
+use std::path::Path;
 use gecco::Gecco;
 use gecco::orf::SeqRecord;
 
@@ -266,59 +268,38 @@ fn main() -> anyhow::Result<()> {
         .threshold(0.8)
         .build()?;
 
-    // Load your sequences (e.g. from a FASTA file)
+    // Load your sequences (e.g. from a FASTA file). You can use https://docs.rs/noodles/latest/noodles/  or other library to parse a FASTA file
     let records = vec![SeqRecord {
         id: "contig_1".into(),
         seq: std::fs::read_to_string("genome.fna")?,
     }];
 
     // Run the full pipeline: gene finding → annotation → CRF → clustering
-    let clusters = pipeline.scan(&records)?;
-    for cluster in &clusters {
+    let results = pipeline.scan(&records)?;
+
+    // You can directly access the results like this
+    for cluster in &results.clusters {
         println!("{}: {} genes, type={}",
             cluster.id, cluster.genes.len(), cluster.cluster_type);
     }
+
+    // Or you can write output files like this (same formats as the CLI)
+    results.write_gene_table(File::create("output.genes.tsv")?)?;
+    results.write_feature_table(File::create("output.features.tsv")?)?;
+    results.write_cluster_table(File::create("output.clusters.tsv")?)?;
+    results.write_cluster_gbks(Path::new("output_dir"))?;
 
     Ok(())
 }
 ```
 
-For more control, use `scan_detailed` to also get per-gene probabilities, or run individual stages separately:
+For more control, run individual pipeline stages separately:
 
 ```rust
-// Get both genes (with probabilities) and clusters
-let (genes, clusters) = pipeline.scan_detailed(&records)?;
-
-for gene in &genes {
-    println!("{}: p={:.3}", gene.id, gene.average_p.unwrap_or(0.0));
-}
-
-// Or run stages individually:
 let mut genes = pipeline.find_genes(&records)?;
 pipeline.annotate_domains(&mut genes)?;
 let genes = pipeline.predict_probabilities(&genes)?;
 let clusters = pipeline.extract_clusters(&genes);
-```
-
-To write output files (same formats as the CLI), use the I/O functions:
-
-```rust
-use std::fs::File;
-use gecco::io::tables::{ClusterTable, GeneTable, FeatureTable};
-use gecco::io::genbank::write_cluster_gbk;
-
-let (genes, clusters) = pipeline.scan_detailed(&records)?;
-
-// Write TSV tables
-GeneTable::write_from_genes(File::create("output.genes.tsv")?, &genes)?;
-FeatureTable::write_from_genes(File::create("output.features.tsv")?, &genes)?;
-ClusterTable::write_from_clusters(File::create("output.clusters.tsv")?, &clusters)?;
-
-// Write GenBank files (one per cluster)
-for cluster in &clusters {
-    let f = File::create(format!("{}.gbk", cluster.id))?;
-    write_cluster_gbk(f, cluster, None, env!("CARGO_PKG_VERSION"))?;
-}
 ```
 
 The builder supports many options — see the [GeccoBuilder](src/pipeline.rs) source for the full list:
