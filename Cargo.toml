@@ -5,6 +5,7 @@ edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
 autobenches = false
+include = ["src/", "benches/", "tests/", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "gecco"
