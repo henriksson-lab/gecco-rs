@@ -1,0 +1,209 @@
+# Mapping file for code-complexity-comparator (ccc-rs).
+#
+# Pairs Rust functions in src/ with their Python originals in GECCO/gecco/.
+# Use with:
+#   ccc-rs compare rust.json python.json --mapping ccc_mapping.toml
+#
+# Matching semantics (from ccc-rs docs):
+#   - `rust_path` / `other_path` are path *suffixes* matched on whole components
+#   - `rust_class` / `other_class` pin the enclosing class (Rust impl-target,
+#     Python class). Use this for overloaded names like `new` or `__init__`
+#     that repeat across types in one file. Stable across edits — prefer
+#     this over line pinning.
+#   - `rust_line` / `other_line` are available as a line-number fallback
+#   - Entries override the default name / normalization / fingerprint matching
+
+# ---------------------------------------------------------------------------
+# Class constructors: Python __init__ -> Rust ::new
+# ---------------------------------------------------------------------------
+
+# model.rs / model.py have constructors on several types. Pin each one by
+# the enclosing class name; source-order and line numbers don't matter.
+[[entries]]
+rust        = "new"
+rust_path   = "src/model.rs"
+rust_class  = "ClusterType"
+other       = "__init__"
+other_path  = "gecco/model.py"
+other_class = "ClusterType"
+
+[[entries]]
+rust        = "new"
+rust_path   = "src/model.rs"
+rust_class  = "Cluster"
+other       = "__init__"
+other_path  = "gecco/model.py"
+other_class = "Cluster"
+
+# FeatureTable (Python) / Protein (Rust) constructors have no counterpart
+# on the other side — no entry needed.
+
+# Other per-file constructor maps -------------------------------------------
+
+[[entries]]
+rust       = "new"
+rust_path  = "src/hmmer.rs"
+other      = "__init__"
+other_path = "gecco/hmmer/__init__.py"
+
+[[entries]]
+rust       = "new"
+rust_path  = "src/crf/mod.rs"
+other      = "__init__"
+other_path = "gecco/crf/__init__.py"
+
+# types/mod.rs bundles TypeBinarizer and TypeClassifier; Python keeps them
+# in separate files. Class pinning makes this unambiguous on both sides.
+[[entries]]
+rust        = "new"
+rust_path   = "src/types/mod.rs"
+rust_class  = "TypeBinarizer"
+other       = "__init__"
+other_path  = "gecco/types/binarizer.py"
+
+[[entries]]
+rust        = "new"
+rust_path   = "src/types/mod.rs"
+rust_class  = "TypeClassifier"
+other       = "__init__"
+other_path  = "gecco/types/__init__.py"
+
+# ---------------------------------------------------------------------------
+# Renamed methods / functions
+# ---------------------------------------------------------------------------
+
+# Strand.__repr__ rendered by Rust's Display::fmt
+[[entries]]
+rust       = "fmt"
+rust_path  = "src/model.rs"
+other      = "__repr__"
+other_path = "gecco/model.py"
+
+# Cluster.source property -> source_id getter on the Rust struct
+[[entries]]
+rust       = "source_id"
+rust_path  = "src/model.rs"
+other      = "source"
+other_path = "gecco/model.py"
+
+# InterPro.load classmethod -> from_json factory
+[[entries]]
+rust       = "from_json"
+rust_path  = "src/interpro.rs"
+other      = "load"
+other_path = "gecco/interpro/__init__.py"
+
+# ClusterCRF.trained classmethod -> CrfSuiteModel::from_file
+[[entries]]
+rust       = "from_file"
+rust_path  = "src/crf/backend.rs"
+other      = "trained"
+other_path = "gecco/crf/__init__.py"
+
+# Refiner helpers: Python `_foo` private -> Rust `foo`
+[[entries]]
+rust       = "raw_clusters"
+rust_path  = "src/refine.rs"
+other      = "_iter_clusters"
+other_path = "gecco/refine.py"
+
+[[entries]]
+rust       = "validate_cluster"
+rust_path  = "src/refine.rs"
+other      = "_validate_cluster"
+other_path = "gecco/refine.py"
+
+[[entries]]
+rust       = "trim_cluster"
+rust_path  = "src/refine.rs"
+other      = "_trim_cluster"
+other_path = "gecco/refine.py"
+
+# ---------------------------------------------------------------------------
+# Table serialization: Python @classmethod from_genes/to_genes/from_clusters
+# live on model.py; Rust moved them to src/io/tables.rs as free functions.
+# tables.rs has two write_from_genes/read_to_genes (FeatureTable then
+# GeneTable — in that source order). Python order in model.py:
+#   FeatureTable.from_genes (645), FeatureTable.to_genes (672),
+#   GeneTable._get_columns... from_genes is only on FeatureTable/GeneTable,
+#   and ClusterTable has from_clusters.
+# ---------------------------------------------------------------------------
+
+[[entries]]
+rust       = "write_from_genes"
+rust_path  = "src/io/tables.rs"
+other      = "from_genes"
+other_path = "gecco/model.py"
+
+[[entries]]
+rust       = "read_to_genes"
+rust_path  = "src/io/tables.rs"
+other      = "to_genes"
+other_path = "gecco/model.py"
+
+[[entries]]
+rust       = "write_from_clusters"
+rust_path  = "src/io/tables.rs"
+other      = "from_clusters"
+other_path = "gecco/model.py"
+
+# ---------------------------------------------------------------------------
+# Pipeline (cli/commands/_common.py) helpers -> Gecco methods in pipeline.rs
+# ---------------------------------------------------------------------------
+
+# write_genes_table -> write_gene_table (singular vs plural)
+[[entries]]
+rust       = "write_gene_table"
+rust_path  = "src/pipeline.rs"
+other      = "write_genes_table"
+other_path = "gecco/cli/commands/_common.py"
+
+# Python `disentangle(gene)` free function -> Rust `disentangle` in hmmer.rs.
+# (Names already equal — listed here for explicitness since Rust also has a
+# `disentangle(bool)` builder setter on GeccoBuilder in pipeline.rs that would
+# otherwise steal this match.)
+[[entries]]
+rust       = "disentangle"
+rust_path  = "src/hmmer.rs"
+other      = "disentangle"
+other_path = "gecco/cli/commands/_common.py"
+
+# ---------------------------------------------------------------------------
+# CLI subcommand entry points: Python `run(args, ...)` -> Rust `execute(self)`
+# ---------------------------------------------------------------------------
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/annotate.rs"
+other      = "run"
+other_path = "gecco/cli/commands/annotate.py"
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/convert.rs"
+other      = "run"
+other_path = "gecco/cli/commands/convert.py"
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/cv.rs"
+other      = "run"
+other_path = "gecco/cli/commands/cv.py"
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/predict.rs"
+other      = "run"
+other_path = "gecco/cli/commands/predict.py"
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/run.rs"
+other      = "run"
+other_path = "gecco/cli/commands/run.py"
+
+[[entries]]
+rust       = "execute"
+rust_path  = "src/cli/train.rs"
+other      = "run"
+other_path = "gecco/cli/commands/train.py"
