@@ -87,22 +87,43 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
         args.input_dir, out_dir, args.format
     );
 
-    // Find all .gbk files in input directory
+    // Python globs `*_cluster_*.gbk` and also skips anything whose structured
+    // comment block lacks a `GECCO-Data` marker. Match both so we don't
+    // accidentally convert user-supplied GenBank files (e.g. reference
+    // genomes that happen to sit in the same directory).
     let entries: Vec<_> = std::fs::read_dir(&args.input_dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path()
+            let path = e.path();
+            let ext_ok = path
                 .extension()
                 .map(|ext| ext == "gbk")
+                .unwrap_or(false);
+            if !ext_ok {
+                return false;
+            }
+            // `*_cluster_*.gbk` — require at least one `_cluster_` segment in
+            // the stem.
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.contains("_cluster_"))
                 .unwrap_or(false)
         })
         .collect();
 
+    let mut done = 0usize;
     for entry in &entries {
         let path = entry.path();
         let stem = path.file_stem().unwrap_or_default().to_string_lossy();
 
         let gbk_data = std::fs::read(&path)?;
+        // Python checks `"GECCO-Data" not in record.annotations["structured_comment"]`.
+        // gb_io doesn't expose structured comments as a typed field, so grep
+        // the raw bytes for the sentinel written by `build_gecco_comment`.
+        if !gbk_data.windows(b"GECCO-Data".len()).any(|w| w == b"GECCO-Data") {
+            log::warn!("GenBank file {:?} was not obtained by GECCO", path);
+            continue;
+        }
         let seqs: Vec<_> = gb_io::reader::SeqReader::new(&gbk_data[..])
             .filter_map(|r| r.ok())
             .collect();
@@ -130,20 +151,24 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
                         if feat.kind != std::borrow::Cow::from("CDS") {
                             continue;
                         }
-                        let locus_tag = feat
-                            .qualifier_values("locus_tag")
-                            .next()
-                            .unwrap_or("unknown");
+                        // Match Python: skip CDS without locus_tag; require
+                        // translation to be present (crash on absent is
+                        // Python's behavior, we surface via Context).
+                        let Some(locus_tag) = feat.qualifier_values("locus_tag").next() else {
+                            continue;
+                        };
                         let translation = feat
                             .qualifier_values("translation")
                             .next()
-                            .unwrap_or("");
-                        if !translation.is_empty() {
-                            writeln!(out, ">{}", locus_tag)?;
-                            for chunk in translation.as_bytes().chunks(80) {
-                                out.write_all(chunk)?;
-                                writeln!(out)?;
-                            }
+                            .with_context(|| {
+                                format!(
+                                    "CDS {locus_tag:?} in {path:?} has no translation qualifier"
+                                )
+                            })?;
+                        writeln!(out, ">{}", locus_tag)?;
+                        for chunk in translation.as_bytes().chunks(80) {
+                            out.write_all(chunk)?;
+                            writeln!(out)?;
                         }
                     }
                 }
@@ -156,9 +181,10 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
                 info!("Wrote {:?}", out_path);
             }
         }
+        done += 1;
     }
 
-    info!("Converted {} file(s)", entries.len());
+    info!("Converted {} file(s)", done);
     Ok(())
 }
 

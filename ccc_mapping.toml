@@ -2,208 +2,757 @@
 #
 # Pairs Rust functions in src/ with their Python originals in GECCO/gecco/.
 # Use with:
-#   ccc-rs compare rust.json python.json --mapping ccc_mapping.toml
+#   ccc-rs compare     rust.json python.json --mapping ccc_mapping.toml
+#   ccc-rs compare-tui --other-root GECCO/gecco
 #
 # Matching semantics (from ccc-rs docs):
 #   - `rust_path` / `other_path` are path *suffixes* matched on whole components
 #   - `rust_class` / `other_class` pin the enclosing class (Rust impl-target,
-#     Python class). Use this for overloaded names like `new` or `__init__`
-#     that repeat across types in one file. Stable across edits — prefer
-#     this over line pinning.
-#   - `rust_line` / `other_line` are available as a line-number fallback
-#   - Entries override the default name / normalization / fingerprint matching
+#     Python class). Use these whenever the bare name repeats within a file.
+#   - `rust_line` / `other_line` are a last-resort line-number fallback.
+#   - Entries override the default name / normalization / fingerprint matching.
+#
+# Omissions are deliberate: decorators, argparse configurators, dunder methods
+# that Rust gets from derives, classmethods that Rust splits into builder
+# chains, Python-specific adapters for biopython / polars, and test fixtures
+# have no 1:1 Rust counterpart. ccc-rs has no negative/exclusion entries; if
+# `order-annotate` is run without filtering to `match_strategy == Mapping`, a
+# few residual Fingerprint/Normalized matches are expected false positives.
 
-# ---------------------------------------------------------------------------
-# Class constructors: Python __init__ -> Rust ::new
-# ---------------------------------------------------------------------------
+# =============================================================================
+# model.py  <->  src/model.rs
+# =============================================================================
 
-# model.rs / model.py have constructors on several types. Pin each one by
-# the enclosing class name; source-order and line numbers don't matter.
+# --- ClusterType -------------------------------------------------------------
 [[entries]]
-rust        = "new"
-rust_path   = "src/model.rs"
-rust_class  = "ClusterType"
-other       = "__init__"
-other_path  = "gecco/model.py"
+rust = "new"
+rust_path = "src/model.rs"
+rust_class = "ClusterType"
+other = "__init__"
+other_path = "gecco/model.py"
+other_class = "ClusterType"
+
+# Python __str__ is rendered by Rust's Display::fmt. Python __repr__ has no
+# explicit Rust counterpart beyond the derived Debug implementation.
+[[entries]]
+rust = "fmt"
+rust_path = "src/model.rs"
+rust_class = "ClusterType"
+other = "__str__"
+other_path = "gecco/model.py"
 other_class = "ClusterType"
 
 [[entries]]
-rust        = "new"
-rust_path   = "src/model.rs"
-rust_class  = "Cluster"
-other       = "__init__"
-other_path  = "gecco/model.py"
+rust = "unpack"
+rust_path = "src/model.rs"
+rust_class = "ClusterType"
+other = "unpack"
+other_path = "gecco/model.py"
+other_class = "ClusterType"
+
+# --- Strand ------------------------------------------------------------------
+# Python Strand.sign is a @property; Rust maps it to a method of the same name.
+[[entries]]
+rust = "sign"
+rust_path = "src/model.rs"
+rust_class = "Strand"
+other = "sign"
+other_path = "gecco/model.py"
+other_class = "Strand"
+
+# --- Domain ------------------------------------------------------------------
+[[entries]]
+rust = "with_probability"
+rust_path = "src/model.rs"
+rust_class = "Domain"
+other = "with_probability"
+other_path = "gecco/model.py"
+other_class = "Domain"
+
+[[entries]]
+rust = "with_cluster_weight"
+rust_path = "src/model.rs"
+rust_class = "Domain"
+other = "with_cluster_weight"
+other_path = "gecco/model.py"
+other_class = "Domain"
+
+# Python Domain.to_seq_feature builds the misc_feature directly; Rust factors
+# the coordinate conversion into the GenBank writer helper used when emitting
+# those misc_features.
+[[entries]]
+rust = "domain_location"
+rust_path = "src/io/genbank.rs"
+other = "to_seq_feature"
+other_path = "gecco/model.py"
+other_class = "Domain"
+
+# --- Protein -----------------------------------------------------------------
+[[entries]]
+rust = "with_seq"
+rust_path = "src/model.rs"
+rust_class = "Protein"
+other = "with_seq"
+other_path = "gecco/model.py"
+other_class = "Protein"
+
+[[entries]]
+rust = "with_domains"
+rust_path = "src/model.rs"
+rust_class = "Protein"
+other = "with_domains"
+other_path = "gecco/model.py"
+other_class = "Protein"
+
+# --- Gene --------------------------------------------------------------------
+[[entries]]
+rust = "id"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "id"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+[[entries]]
+rust = "average_probability"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "average_probability"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+[[entries]]
+rust = "maximum_probability"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "maximum_probability"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+[[entries]]
+rust = "with_protein"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "with_protein"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+[[entries]]
+rust = "with_probability"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "with_probability"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+[[entries]]
+rust = "functions"
+rust_path = "src/model.rs"
+rust_class = "Gene"
+other = "functions"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+# Python Gene.to_seq_feature builds the CDS feature directly; Rust factors
+# the coordinate conversion into the GenBank writer helper used when emitting
+# CDS features.
+[[entries]]
+rust = "gene_location"
+rust_path = "src/io/genbank.rs"
+other = "to_seq_feature"
+other_path = "gecco/model.py"
+other_class = "Gene"
+
+# --- Cluster -----------------------------------------------------------------
+[[entries]]
+rust = "new"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "__init__"
+other_path = "gecco/model.py"
 other_class = "Cluster"
 
-# FeatureTable (Python) / Protein (Rust) constructors have no counterpart
-# on the other side — no entry needed.
-
-# Other per-file constructor maps -------------------------------------------
+# Python @property `source` -> Rust `source_id` getter.
+[[entries]]
+rust = "source_id"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "source"
+other_path = "gecco/model.py"
+other_class = "Cluster"
 
 [[entries]]
-rust       = "new"
-rust_path  = "src/hmmer.rs"
-other      = "__init__"
+rust = "start"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "start"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+[[entries]]
+rust = "end"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "end"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+[[entries]]
+rust = "average_probability"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "average_probability"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+[[entries]]
+rust = "maximum_probability"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "maximum_probability"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+[[entries]]
+rust = "domain_composition"
+rust_path = "src/model.rs"
+rust_class = "Cluster"
+other = "domain_composition"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+# Python Cluster.to_seq_record builds a BioPython SeqRecord; the Rust
+# equivalent is `cluster_to_seq` in the genbank writer.
+[[entries]]
+rust = "cluster_to_seq"
+rust_path = "src/io/genbank.rs"
+other = "to_seq_record"
+other_path = "gecco/model.py"
+other_class = "Cluster"
+
+# =============================================================================
+# model.py table classes  <->  src/io/tables.rs
+# Rust moved FeatureTable/GeneTable/ClusterTable serialization into free
+# functions under io/tables.rs. Class pinning disambiguates between the two
+# `write_from_genes` (FeatureTable vs GeneTable).
+# =============================================================================
+
+[[entries]]
+rust = "write_from_genes"
+rust_path = "src/io/tables.rs"
+rust_class = "FeatureTable"
+other = "from_genes"
+other_path = "gecco/model.py"
+other_class = "FeatureTable"
+
+[[entries]]
+rust = "read_to_genes"
+rust_path = "src/io/tables.rs"
+rust_class = "FeatureTable"
+other = "to_genes"
+other_path = "gecco/model.py"
+other_class = "FeatureTable"
+
+[[entries]]
+rust = "write_from_genes"
+rust_path = "src/io/tables.rs"
+rust_class = "GeneTable"
+other = "from_genes"
+other_path = "gecco/model.py"
+other_class = "GeneTable"
+
+[[entries]]
+rust = "read_to_genes"
+rust_path = "src/io/tables.rs"
+rust_class = "GeneTable"
+other = "to_genes"
+other_path = "gecco/model.py"
+other_class = "GeneTable"
+
+[[entries]]
+rust = "write_from_clusters"
+rust_path = "src/io/tables.rs"
+rust_class = "ClusterTable"
+other = "from_clusters"
+other_path = "gecco/model.py"
+other_class = "ClusterTable"
+
+# =============================================================================
+# orf.py  <->  src/orf.rs
+# =============================================================================
+
+# Python ORFFinder is the abstract base class; Rust models it as a trait, so
+# its `find_genes` sits outside any impl block (enclosing_type == None on the
+# Rust side). Pin explicitly so the trait signature isn't auto-paired with an
+# unrelated concrete method downstream.
+[[entries]]
+rust = "find_genes"
+rust_path = "src/orf.rs"
+rust_class = ""            # empty = must have no enclosing type (free / trait decl)
+other = "find_genes"
+other_path = "gecco/orf.py"
+other_class = "ORFFinder"
+
+# Python PyrodigalFinder -> Rust ProdigalFinder (spelling change)
+[[entries]]
+rust = "find_genes"
+rust_path = "src/orf.rs"
+rust_class = "ProdigalFinder"
+other = "find_genes"
+other_path = "gecco/orf.py"
+other_class = "PyrodigalFinder"
+
+# Python CDSFinder has no Rust counterpart in orf.rs (the extract path is
+# folded into cluster_to_seq / io/genbank.rs), so nothing is mapped for it.
+
+# =============================================================================
+# refine.py  <->  src/refine.rs
+# Rust drops the leading-underscore convention; private methods become plain.
+# =============================================================================
+
+[[entries]]
+rust = "iter_clusters"
+rust_path = "src/refine.rs"
+rust_class = "ClusterRefiner"
+other = "iter_clusters"
+other_path = "gecco/refine.py"
+other_class = "ClusterRefiner"
+
+[[entries]]
+rust = "raw_clusters"
+rust_path = "src/refine.rs"
+rust_class = "ClusterRefiner"
+other = "_iter_clusters"
+other_path = "gecco/refine.py"
+other_class = "ClusterRefiner"
+
+[[entries]]
+rust = "validate_cluster"
+rust_path = "src/refine.rs"
+rust_class = "ClusterRefiner"
+other = "_validate_cluster"
+other_path = "gecco/refine.py"
+other_class = "ClusterRefiner"
+
+[[entries]]
+rust = "trim_cluster"
+rust_path = "src/refine.rs"
+rust_class = "ClusterRefiner"
+other = "_trim_cluster"
+other_path = "gecco/refine.py"
+other_class = "ClusterRefiner"
+
+# =============================================================================
+# hmmer/__init__.py  <->  src/hmmer.rs
+# =============================================================================
+
+[[entries]]
+rust = "relabel"
+rust_path = "src/hmmer.rs"
+rust_class = "HMM"
+other = "relabel"
 other_path = "gecco/hmmer/__init__.py"
+other_class = "HMM"
+
+# Python DomainAnnotator is the abstract base. Rust has a matching trait for
+# the run signature, while construction happens at PyHMMER::new.
+[[entries]]
+rust = "new"
+rust_path = "src/hmmer.rs"
+rust_class = "PyHMMER"
+other = "__init__"
+other_path = "gecco/hmmer/__init__.py"
+other_class = "DomainAnnotator"
 
 [[entries]]
-rust       = "new"
-rust_path  = "src/crf/mod.rs"
-other      = "__init__"
-other_path = "gecco/crf/__init__.py"
-
-# types/mod.rs bundles TypeBinarizer and TypeClassifier; Python keeps them
-# in separate files. Class pinning makes this unambiguous on both sides.
-[[entries]]
-rust        = "new"
-rust_path   = "src/types/mod.rs"
-rust_class  = "TypeBinarizer"
-other       = "__init__"
-other_path  = "gecco/types/binarizer.py"
+rust = "run"
+rust_path = "src/hmmer.rs"
+other = "run"
+other_path = "gecco/hmmer/__init__.py"
+other_class = "DomainAnnotator"
 
 [[entries]]
-rust        = "new"
-rust_path   = "src/types/mod.rs"
-rust_class  = "TypeClassifier"
-other       = "__init__"
-other_path  = "gecco/types/__init__.py"
+rust = "run"
+rust_path = "src/hmmer.rs"
+rust_class = "PyHMMER"
+other = "run"
+other_path = "gecco/hmmer/__init__.py"
+other_class = "PyHMMER"
 
-# ---------------------------------------------------------------------------
-# Renamed methods / functions
-# ---------------------------------------------------------------------------
+# =============================================================================
+# interpro/__init__.py  <->  src/interpro.rs
+# Python classmethod `InterPro.load` reads bundled JSON; Rust exposes
+# `InterPro::from_json` for the same purpose.
+# =============================================================================
 
-# Strand.__repr__ rendered by Rust's Display::fmt
 [[entries]]
-rust       = "fmt"
-rust_path  = "src/model.rs"
-other      = "__repr__"
-other_path = "gecco/model.py"
-
-# Cluster.source property -> source_id getter on the Rust struct
-[[entries]]
-rust       = "source_id"
-rust_path  = "src/model.rs"
-other      = "source"
-other_path = "gecco/model.py"
-
-# InterPro.load classmethod -> from_json factory
-[[entries]]
-rust       = "from_json"
-rust_path  = "src/interpro.rs"
-other      = "load"
+rust = "from_json"
+rust_path = "src/interpro.rs"
+rust_class = "InterPro"
+other = "load"
 other_path = "gecco/interpro/__init__.py"
+other_class = "InterPro"
 
-# ClusterCRF.trained classmethod -> CrfSuiteModel::from_file
+# =============================================================================
+# crf/__init__.py  <->  src/crf/{mod,backend}.rs
+# Python ClusterCRF bundles model state and training; Rust splits the raw
+# crfsuite wrapper (`CrfSuiteModel` in backend.rs) from the feature pipeline
+# (`ClusterCRF` in mod.rs).
+# =============================================================================
+
 [[entries]]
-rust       = "from_file"
-rust_path  = "src/crf/backend.rs"
-other      = "trained"
+rust = "new"
+rust_path = "src/crf/mod.rs"
+rust_class = "ClusterCRF"
+other = "__init__"
 other_path = "gecco/crf/__init__.py"
-
-# Refiner helpers: Python `_foo` private -> Rust `foo`
-[[entries]]
-rust       = "raw_clusters"
-rust_path  = "src/refine.rs"
-other      = "_iter_clusters"
-other_path = "gecco/refine.py"
+other_class = "ClusterCRF"
 
 [[entries]]
-rust       = "validate_cluster"
-rust_path  = "src/refine.rs"
-other      = "_validate_cluster"
-other_path = "gecco/refine.py"
+rust = "predict_probabilities"
+rust_path = "src/crf/mod.rs"
+rust_class = "ClusterCRF"
+other = "predict_probabilities"
+other_path = "gecco/crf/__init__.py"
+other_class = "ClusterCRF"
 
 [[entries]]
-rust       = "trim_cluster"
-rust_path  = "src/refine.rs"
-other      = "_trim_cluster"
-other_path = "gecco/refine.py"
+rust = "fit"
+rust_path = "src/crf/mod.rs"
+rust_class = "ClusterCRF"
+other = "fit"
+other_path = "gecco/crf/__init__.py"
+other_class = "ClusterCRF"
 
-# ---------------------------------------------------------------------------
-# Table serialization: Python @classmethod from_genes/to_genes/from_clusters
-# live on model.py; Rust moved them to src/io/tables.rs as free functions.
-# tables.rs has two write_from_genes/read_to_genes (FeatureTable then
-# GeneTable — in that source order). Python order in model.py:
-#   FeatureTable.from_genes (645), FeatureTable.to_genes (672),
-#   GeneTable._get_columns... from_genes is only on FeatureTable/GeneTable,
-#   and ClusterTable has from_clusters.
-# ---------------------------------------------------------------------------
+# Python classmethod `ClusterCRF.trained(model_path)` -> load a frozen model
+# via `CrfSuiteModel::from_file` in the Rust backend layer.
+[[entries]]
+rust = "from_file"
+rust_path = "src/crf/backend.rs"
+rust_class = "CrfSuiteModel"
+other = "trained"
+other_path = "gecco/crf/__init__.py"
+other_class = "ClusterCRF"
 
 [[entries]]
-rust       = "write_from_genes"
-rust_path  = "src/io/tables.rs"
-other      = "from_genes"
-other_path = "gecco/model.py"
+rust = "save"
+rust_path = "src/crf/backend.rs"
+rust_class = "CrfSuiteModel"
+other = "save"
+other_path = "gecco/crf/__init__.py"
+other_class = "ClusterCRF"
+
+# =============================================================================
+# crf/features.py  <->  src/crf/features.rs
+# Names match exactly — pair explicitly so the report is self-documenting.
+# =============================================================================
 
 [[entries]]
-rust       = "read_to_genes"
-rust_path  = "src/io/tables.rs"
-other      = "to_genes"
-other_path = "gecco/model.py"
+rust = "extract_features_protein"
+rust_path = "src/crf/features.rs"
+other = "extract_features_protein"
+other_path = "gecco/crf/features.py"
 
 [[entries]]
-rust       = "write_from_clusters"
-rust_path  = "src/io/tables.rs"
-other      = "from_clusters"
-other_path = "gecco/model.py"
+rust = "extract_features_domain"
+rust_path = "src/crf/features.rs"
+other = "extract_features_domain"
+other_path = "gecco/crf/features.py"
 
-# ---------------------------------------------------------------------------
-# Pipeline (cli/commands/_common.py) helpers -> Gecco methods in pipeline.rs
-# ---------------------------------------------------------------------------
-
-# write_genes_table -> write_gene_table (singular vs plural)
 [[entries]]
-rust       = "write_gene_table"
-rust_path  = "src/pipeline.rs"
-other      = "write_genes_table"
+rust = "extract_labels_protein"
+rust_path = "src/crf/features.rs"
+other = "extract_labels_protein"
+other_path = "gecco/crf/features.py"
+
+[[entries]]
+rust = "extract_labels_domain"
+rust_path = "src/crf/features.rs"
+other = "extract_labels_domain"
+other_path = "gecco/crf/features.py"
+
+[[entries]]
+rust = "annotate_probabilities_protein"
+rust_path = "src/crf/features.rs"
+other = "annotate_probabilities_protein"
+other_path = "gecco/crf/features.py"
+
+[[entries]]
+rust = "annotate_probabilities_domain"
+rust_path = "src/crf/features.rs"
+other = "annotate_probabilities_domain"
+other_path = "gecco/crf/features.py"
+
+# =============================================================================
+# types/  <->  src/types/
+# Python splits TypeBinarizer (binarizer.py) and TypeClassifier (__init__.py);
+# Rust bundles both under types/mod.rs.
+# =============================================================================
+
+# TypeBinarizer
+[[entries]]
+rust = "new"
+rust_path = "src/types/mod.rs"
+rust_class = "TypeBinarizer"
+other = "__init__"
+other_path = "gecco/types/binarizer.py"
+other_class = "TypeBinarizer"
+
+[[entries]]
+rust = "transform"
+rust_path = "src/types/mod.rs"
+rust_class = "TypeBinarizer"
+other = "transform"
+other_path = "gecco/types/binarizer.py"
+other_class = "TypeBinarizer"
+
+[[entries]]
+rust = "inverse_transform"
+rust_path = "src/types/mod.rs"
+rust_class = "TypeBinarizer"
+other = "inverse_transform"
+other_path = "gecco/types/binarizer.py"
+other_class = "TypeBinarizer"
+
+# TypeClassifier
+[[entries]]
+rust = "new"
+rust_path = "src/types/mod.rs"
+rust_class = "TypeClassifier"
+other = "__init__"
+other_path = "gecco/types/__init__.py"
+other_class = "TypeClassifier"
+
+[[entries]]
+rust = "predict_types"
+rust_path = "src/types/mod.rs"
+rust_class = "TypeClassifier"
+other = "predict_types"
+other_path = "gecco/types/__init__.py"
+other_class = "TypeClassifier"
+
+# =============================================================================
+# cli/commands/_common.py  <->  src/pipeline.rs and helpers
+# Python keeps pipeline stages as module-level helper functions; Rust exposes
+# them as methods on `Gecco` / `GeccoResults` (pipeline.rs) and delegates IO
+# to io/genbank.rs and io/tables.rs.
+# =============================================================================
+
+# --- output writers: GeccoResults methods ---
+[[entries]]
+rust = "write_gene_table"
+rust_path = "src/pipeline.rs"
+rust_class = "GeccoResults"
+other = "write_genes_table"
 other_path = "gecco/cli/commands/_common.py"
 
-# Python `disentangle(gene)` free function -> Rust `disentangle` in hmmer.rs.
-# (Names already equal — listed here for explicitness since Rust also has a
-# `disentangle(bool)` builder setter on GeccoBuilder in pipeline.rs that would
-# otherwise steal this match.)
 [[entries]]
-rust       = "disentangle"
-rust_path  = "src/hmmer.rs"
-other      = "disentangle"
+rust = "write_feature_table"
+rust_path = "src/pipeline.rs"
+rust_class = "GeccoResults"
+other = "write_feature_table"
 other_path = "gecco/cli/commands/_common.py"
 
-# ---------------------------------------------------------------------------
+[[entries]]
+rust = "write_cluster_table"
+rust_path = "src/pipeline.rs"
+rust_class = "GeccoResults"
+other = "write_cluster_table"
+other_path = "gecco/cli/commands/_common.py"
+
+[[entries]]
+rust = "write_cluster_gbks"
+rust_path = "src/pipeline.rs"
+rust_class = "GeccoResults"
+other = "write_clusters"
+other_path = "gecco/cli/commands/_common.py"
+
+# --- sequence / feature IO ---
+[[entries]]
+rust = "read_sequences"
+rust_path = "src/io/genbank.rs"
+other = "load_sequences"
+other_path = "gecco/cli/commands/_common.py"
+
+# Python has separate default_hmms/custom_hmms helpers. Rust currently folds
+# default and user-provided HMM config selection into one loader.
+[[entries]]
+rust = "load_hmm_configs"
+rust_path = "src/cli/run.rs"
+other = "default_hmms"
+other_path = "gecco/cli/commands/_common.py"
+
+# --- pipeline stage entry points (Gecco methods) ---
+[[entries]]
+rust = "find_genes"
+rust_path = "src/pipeline.rs"
+rust_class = "Gecco"
+other = "extract_genes"
+other_path = "gecco/cli/commands/_common.py"
+
+[[entries]]
+rust = "annotate_domains"
+rust_path = "src/pipeline.rs"
+rust_class = "Gecco"
+other = "annotate_domains"
+other_path = "gecco/cli/commands/_common.py"
+
+[[entries]]
+rust = "predict_probabilities"
+rust_path = "src/pipeline.rs"
+rust_class = "Gecco"
+other = "predict_probabilities"
+other_path = "gecco/cli/commands/_common.py"
+
+[[entries]]
+rust = "extract_clusters"
+rust_path = "src/pipeline.rs"
+rust_class = "Gecco"
+other = "extract_clusters"
+other_path = "gecco/cli/commands/_common.py"
+
+# --- HMM post-processing: free functions in hmmer.rs ---
+# Python `disentangle(gene)` is a per-gene helper wrapped by
+# `disentangle_domains(logger, genes)`; Rust keeps just the per-gene one.
+[[entries]]
+rust = "disentangle"
+rust_path = "src/hmmer.rs"
+other = "disentangle"
+other_path = "gecco/cli/commands/_common.py"
+
+# Python `filter_domains` combines e-value + p-value filtering; Rust splits
+# them. We pair with the p-value filter since that's the default path.
+[[entries]]
+rust = "filter_by_pvalue"
+rust_path = "src/hmmer.rs"
+other = "filter_domains"
+other_path = "gecco/cli/commands/_common.py"
+
+# --- Type classifier dispatch ---
+# Python _common.py::predict_types is a thin wrapper that calls
+# TypeClassifier.predict_types; Rust has just the class method, already
+# mapped above. No separate entry needed here.
+
+# =============================================================================
 # CLI subcommand entry points: Python `run(args, ...)` -> Rust `execute(self)`
-# ---------------------------------------------------------------------------
+# on the per-command args struct.
+# =============================================================================
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/annotate.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/annotate.rs"
+rust_class = "AnnotateArgs"
+other = "run"
 other_path = "gecco/cli/commands/annotate.py"
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/convert.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/convert.rs"
+rust_class = "ConvertArgs"
+other = "run"
 other_path = "gecco/cli/commands/convert.py"
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/cv.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/cv.rs"
+rust_class = "CvArgs"
+other = "run"
 other_path = "gecco/cli/commands/cv.py"
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/predict.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/predict.rs"
+rust_class = "PredictArgs"
+other = "run"
 other_path = "gecco/cli/commands/predict.py"
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/run.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/run.rs"
+rust_class = "RunArgs"
+other = "run"
 other_path = "gecco/cli/commands/run.py"
 
 [[entries]]
-rust       = "execute"
-rust_path  = "src/cli/train.rs"
-other      = "run"
+rust = "execute"
+rust_path = "src/cli/train.rs"
+rust_class = "TrainArgs"
+other = "run"
 other_path = "gecco/cli/commands/train.py"
+
+[[entries]]
+rust = "main"
+rust_path = "src/main.rs"
+other = "main"
+other_path = "gecco/cli/commands/__init__.py"
+
+# =============================================================================
+# Build-time tooling: setup.py custom commands  <->  src/cli/{build_data,update_interpro}.rs
+#
+# These entries stay inert unless the ccc --other-root is pointed at the
+# outer GECCO/ (so setup.py gets parsed); inside gecco/ the analyzer never
+# sees them. Kept here because the translation correspondence is real.
+# =============================================================================
+
+[[entries]]
+rust = "execute"
+rust_path = "src/cli/build_data.rs"
+rust_class = "BuildDataArgs"
+other = "run"
+other_path = "GECCO/setup.py"
+other_class = "build_data"
+
+[[entries]]
+rust = "download_hmm"
+rust_path = "src/cli/build_data.rs"
+other = "download_hmm"
+other_path = "GECCO/setup.py"
+other_class = "build_data"
+
+[[entries]]
+rust = "md5_file"
+rust_path = "src/cli/build_data.rs"
+other = "_checksum"
+other_path = "GECCO/setup.py"
+other_class = "build_data"
+
+[[entries]]
+rust = "execute"
+rust_path = "src/cli/update_interpro.rs"
+rust_class = "UpdateInterProArgs"
+other = "run"
+other_path = "GECCO/setup.py"
+other_class = "update_interpro"
+
+# =============================================================================
+# _meta.py utilities  <->  scattered Rust helpers
+# =============================================================================
+
+[[entries]]
+rust = "sliding_window"
+rust_path = "src/util.rs"
+other = "sliding_window"
+other_path = "gecco/_meta.py"
+
+[[entries]]
+rust = "zopen_path"
+rust_path = "src/io/compression.rs"
+other = "zopen"
+other_path = "gecco/_meta.py"
+
+# =============================================================================
+# convert subcommand sub-routines
+# Python splits by output format; Rust consolidates into two workhorse fns.
+# =============================================================================
+
+[[entries]]
+rust = "convert_gbk"
+rust_path = "src/cli/convert.rs"
+other = "_convert_gbk_fna"
+other_path = "gecco/cli/commands/convert.py"
+
+[[entries]]
+rust = "convert_clusters"
+rust_path = "src/cli/convert.rs"
+other = "_convert_clusters_gff"
+other_path = "gecco/cli/commands/convert.py"

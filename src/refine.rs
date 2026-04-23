@@ -101,10 +101,15 @@ impl ClusterRefiner {
             let seq_cloned: Vec<Gene> = seq_genes.iter().map(|g| (*g).clone()).collect();
 
             for gene in &seq_genes {
-                let new_state = gene
-                    .average_probability()
-                    .map(|p| p > self.threshold)
-                    .unwrap_or(false);
+                // Python's GeneGrouper only flips state when the gene has a
+                // probability; genes with no annotation inherit the current
+                // state (sticky grouper in itertools.groupby). Treating
+                // missing probability as "below threshold" would split
+                // clusters at every unannotated gene.
+                let new_state = match gene.average_probability() {
+                    Some(p) => p > self.threshold,
+                    None => in_cluster,
+                };
 
                 if new_state != in_cluster {
                     if in_cluster && !current_genes.is_empty() {
@@ -199,12 +204,17 @@ impl ClusterRefiner {
                     .flat_map(|g| g.protein.domains.iter().map(|d| d.name.as_str()))
                     .collect();
 
-                let avg_prob: f64 = cluster
+                // Match Python's `numpy.mean` semantics: every cluster gene
+                // contributes, and a missing probability poisons the
+                // average to NaN (so the comparison below is false — Python
+                // would raise, Rust treats it as "does not meet threshold"
+                // which is the same operational outcome).
+                let sum: f64 = cluster
                     .genes
                     .iter()
-                    .filter_map(|g| g.average_probability())
-                    .sum::<f64>()
-                    / cluster.genes.len() as f64;
+                    .map(|g| g.average_probability().unwrap_or(f64::NAN))
+                    .sum();
+                let avg_prob = sum / cluster.genes.len() as f64;
 
                 let p_crit = avg_prob >= self.average_threshold;
                 let bio_crit = domains.iter().filter(|d| bio_set.contains(**d)).count()
@@ -213,7 +223,101 @@ impl ClusterRefiner {
 
                 p_crit && bio_crit && cds_crit
             }
-            _ => false,
+            other => panic!("Unknown cluster filtering criterion: {other}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Gene, Protein, Strand};
+    use std::collections::BTreeMap;
+
+    fn gene(id: &str, start: i64, probability: Option<f64>) -> Gene {
+        Gene {
+            source_id: "seq1".into(),
+            start,
+            end: start + 100,
+            strand: Strand::Coding,
+            protein: Protein::new(id, ""),
+            qualifiers: BTreeMap::new(),
+            probability,
+        }
+    }
+
+    #[test]
+    fn sticky_grouper_keeps_unannotated_genes_inside_cluster() {
+        // Python's GeneGrouper leaves `in_cluster` unchanged when a gene has
+        // no probability. The old Rust translation defaulted to `false`,
+        // which split clusters at every unannotated gene. This test pins
+        // the Python behavior: a single unannotated gene between two
+        // high-probability genes must not split the cluster.
+        let refiner = ClusterRefiner {
+            threshold: 0.5,
+            trim: false, // don't prune — we want to see the full extent
+            ..Default::default()
+        };
+        let genes = vec![
+            gene("a", 100, Some(0.9)),
+            gene("b", 200, None), // unannotated; should inherit "in cluster"
+            gene("c", 300, Some(0.9)),
+        ];
+        let raw = refiner.raw_clusters(&genes);
+        assert_eq!(raw.len(), 1, "sticky state must produce one cluster, got {}", raw.len());
+        let (_seq, cluster) = &raw[0];
+        let ids: Vec<&str> = cluster.genes.iter().map(|g| g.id()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn leading_unannotated_gene_stays_out_of_cluster() {
+        // At the very start of a sequence, `in_cluster` is false, so an
+        // unannotated leading gene inherits `false` and does not join the
+        // cluster that begins after it.
+        let refiner = ClusterRefiner {
+            threshold: 0.5,
+            trim: false,
+            ..Default::default()
+        };
+        let genes = vec![
+            gene("pre", 50, None),
+            gene("a", 100, Some(0.9)),
+            gene("b", 200, Some(0.9)),
+        ];
+        let raw = refiner.raw_clusters(&genes);
+        assert_eq!(raw.len(), 1);
+        let (_, cluster) = &raw[0];
+        let ids: Vec<&str> = cluster.genes.iter().map(|g| g.id()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn below_threshold_gene_splits_cluster() {
+        // Explicit below-threshold probability DOES flip state and split.
+        let refiner = ClusterRefiner {
+            threshold: 0.5,
+            trim: false,
+            ..Default::default()
+        };
+        let genes = vec![
+            gene("a", 100, Some(0.9)),
+            gene("b", 200, Some(0.1)),
+            gene("c", 300, Some(0.9)),
+        ];
+        let raw = refiner.raw_clusters(&genes);
+        assert_eq!(raw.len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown cluster filtering criterion")]
+    fn unknown_criterion_panics() {
+        // Python raises ValueError; Rust panics with the same message.
+        let refiner = ClusterRefiner {
+            criterion: "mystery".into(),
+            ..Default::default()
+        };
+        let cluster = Cluster::new("c1", vec![gene("a", 100, Some(0.9))]);
+        refiner.validate_cluster(&[], &cluster);
     }
 }
