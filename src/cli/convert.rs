@@ -95,10 +95,7 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
         .filter_map(|e| e.ok())
         .filter(|e| {
             let path = e.path();
-            let ext_ok = path
-                .extension()
-                .map(|ext| ext == "gbk")
-                .unwrap_or(false);
+            let ext_ok = path.extension().map(|ext| ext == "gbk").unwrap_or(false);
             if !ext_ok {
                 return false;
             }
@@ -120,7 +117,10 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
         // Python checks `"GECCO-Data" not in record.annotations["structured_comment"]`.
         // gb_io doesn't expose structured comments as a typed field, so grep
         // the raw bytes for the sentinel written by `build_gecco_comment`.
-        if !gbk_data.windows(b"GECCO-Data".len()).any(|w| w == b"GECCO-Data") {
+        if !gbk_data
+            .windows(b"GECCO-Data".len())
+            .any(|w| w == b"GECCO-Data")
+        {
             log::warn!("GenBank file {:?} was not obtained by GECCO", path);
             continue;
         }
@@ -148,7 +148,7 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
                 let mut out = std::fs::File::create(&out_path)?;
                 for seq in &seqs {
                     for feat in &seq.features {
-                        if feat.kind != std::borrow::Cow::from("CDS") {
+                        if feat.kind != "CDS" {
                             continue;
                         }
                         // Match Python: skip CDS without locus_tag; require
@@ -200,11 +200,7 @@ fn convert_clusters(args: &ConvertClustersArgs) -> Result<()> {
     // Find all .clusters.tsv files
     let entries: Vec<_> = std::fs::read_dir(&args.input_dir)?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .to_string_lossy()
-                .ends_with(".clusters.tsv")
-        })
+        .filter(|e| e.path().to_string_lossy().ends_with(".clusters.tsv"))
         .collect();
 
     for entry in &entries {
@@ -221,11 +217,9 @@ fn convert_clusters(args: &ConvertClustersArgs) -> Result<()> {
         match args.format {
             ClusterFormat::Gff => {
                 let out_path = out_dir.join(format!("{}.clusters.gff", base_name));
-                let rdr = std::fs::File::open(&path)
-                    .with_context(|| format!("opening {:?}", path))?;
-                let mut tsv_rdr = csv::ReaderBuilder::new()
-                    .delimiter(b'\t')
-                    .from_reader(rdr);
+                let rdr =
+                    std::fs::File::open(&path).with_context(|| format!("opening {:?}", path))?;
+                let mut tsv_rdr = csv::ReaderBuilder::new().delimiter(b'\t').from_reader(rdr);
 
                 let mut out = std::fs::File::create(&out_path)?;
                 writeln!(out, "##gff-version 3")?;
@@ -235,11 +229,7 @@ fn convert_clusters(args: &ConvertClustersArgs) -> Result<()> {
                     writeln!(
                         out,
                         "{}\tGECCO\tgene_cluster\t{}\t{}\t.\t.\t.\tID={};type={}",
-                        row.sequence_id,
-                        row.start,
-                        row.end,
-                        row.cluster_id,
-                        row.r#type,
+                        row.sequence_id, row.start, row.end, row.cluster_id, row.r#type,
                     )?;
                 }
                 info!("Wrote {:?}", out_path);

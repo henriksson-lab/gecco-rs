@@ -21,18 +21,14 @@ pub trait CrfModel: Send + Sync {
     /// Returns a Vec of HashMap<label, probability> for each position.
     fn predict_marginals_single(
         &self,
-        features: &[HashMap<String, bool>],
-    ) -> Vec<HashMap<String, f64>>;
+        features: &[Vec<String>],
+    ) -> Vec<std::collections::HashMap<String, f64>>;
 
     /// Get state feature weights: (feature_name, label) -> weight.
     fn state_features(&self) -> &HashMap<(String, String), f64>;
 
     /// Fit the model on training data.
-    fn fit(
-        &mut self,
-        x: &[Vec<HashMap<String, bool>>],
-        y: &[Vec<String>],
-    ) -> Result<()>;
+    fn fit(&mut self, x: &[Vec<Vec<String>>], y: &[Vec<String>]) -> Result<()>;
 }
 
 /// Wrapper for CRF-based cluster prediction.
@@ -75,15 +71,9 @@ impl ClusterCRF {
 
         // Sort genes by source and start
         let mut genes = genes.to_vec();
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
         for gene in &mut genes {
-            gene.protein
-                .domains
-                .sort_by(|a, b| a.start.cmp(&b.start));
+            gene.protein.domains.sort_by(|a, b| a.start.cmp(&b.start));
         }
 
         // Group by contig
@@ -96,15 +86,14 @@ impl ClusterCRF {
         }
 
         // Extract features per contig
-        let extract_features: fn(&[Gene]) -> Vec<HashMap<String, bool>> =
-            match self.feature_type.as_str() {
-                "protein" => extract_features_protein,
-                "domain" => extract_features_domain,
-                _ => return Err(anyhow::anyhow!("invalid feature type")),
-            };
+        let extract_features: fn(&[Gene]) -> Vec<Vec<String>> = match self.feature_type.as_str() {
+            "protein" => extract_features_protein,
+            "domain" => extract_features_domain,
+            _ => return Err(anyhow::anyhow!("invalid feature type")),
+        };
 
         struct ContigData {
-            feats: Vec<HashMap<String, bool>>,
+            feats: Vec<Vec<String>>,
             delta: usize,
         }
 
@@ -120,10 +109,10 @@ impl ClusterCRF {
                 if pad {
                     delta = self.window_size - feats.len();
                     let pad_left = delta / 2;
-                    let pad_right = (delta + 1) / 2;
-                    let mut padded = vec![HashMap::new(); pad_left];
+                    let pad_right = delta.div_ceil(2);
+                    let mut padded = vec![Vec::new(); pad_left];
                     padded.append(&mut feats);
-                    padded.extend(vec![HashMap::new(); pad_right]);
+                    padded.extend(vec![Vec::new(); pad_right]);
                     feats = padded;
                 } else {
                     continue;
@@ -209,12 +198,11 @@ impl ClusterCRF {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("No CRF model backend set"))?;
 
-        let extract_features: fn(&[Gene]) -> Vec<HashMap<String, bool>> =
-            match self.feature_type.as_str() {
-                "protein" => extract_features_protein,
-                "domain" => extract_features_domain,
-                _ => return Err(anyhow::anyhow!("invalid feature type")),
-            };
+        let extract_features: fn(&[Gene]) -> Vec<Vec<String>> = match self.feature_type.as_str() {
+            "protein" => extract_features_protein,
+            "domain" => extract_features_domain,
+            _ => return Err(anyhow::anyhow!("invalid feature type")),
+        };
         let extract_labels: fn(&[Gene]) -> Vec<String> = match self.feature_type.as_str() {
             "protein" => features::extract_labels_protein,
             "domain" => features::extract_labels_domain,
@@ -225,9 +213,7 @@ impl ClusterCRF {
         let mut genes = genes.to_vec();
         genes.sort_by(|a, b| a.source_id.cmp(&b.source_id));
         for gene in &mut genes {
-            gene.protein
-                .domains
-                .sort_by(|a, b| a.start.cmp(&b.start));
+            gene.protein.domains.sort_by(|a, b| a.start.cmp(&b.start));
         }
 
         let mut sequences: Vec<Vec<Gene>> = Vec::new();

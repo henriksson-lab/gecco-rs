@@ -1,5 +1,6 @@
 //! Data layer types for gene cluster detection.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 
@@ -214,7 +215,7 @@ impl Gene {
         if probas.is_empty() {
             None
         } else {
-            Some(probas.iter().sum::<f64>() / probas.len() as f64)
+            Some(statistics_mean(&probas))
         }
     }
 
@@ -275,6 +276,29 @@ impl Gene {
     }
 }
 
+fn statistics_mean(values: &[f64]) -> f64 {
+    let mut partials = Vec::<f64>::new();
+    for &value in values {
+        let mut x = value;
+        let mut next = Vec::with_capacity(partials.len() + 1);
+        for &partial in &partials {
+            let (hi, lo) = match x.abs().partial_cmp(&partial.abs()) {
+                Some(Ordering::Less) => (partial, x),
+                _ => (x, partial),
+            };
+            x = hi + lo;
+            let yr = x - hi;
+            let lo = lo - yr;
+            if lo != 0.0 {
+                next.push(lo);
+            }
+        }
+        next.push(x);
+        partials = next;
+    }
+    partials.iter().sum::<f64>() / values.len() as f64
+}
+
 // ---------------------------------------------------------------------------
 // Cluster
 // ---------------------------------------------------------------------------
@@ -319,7 +343,7 @@ impl Cluster {
         if probas.is_empty() {
             None
         } else {
-            Some(probas.iter().sum::<f64>() / probas.len() as f64)
+            Some(statistics_mean(&probas))
         }
     }
 

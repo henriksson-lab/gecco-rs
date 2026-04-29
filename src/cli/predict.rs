@@ -13,8 +13,6 @@ use crate::hmmer;
 use crate::io::genbank;
 use crate::io::tables::{ClusterTable, FeatureTable, GeneTable};
 use crate::refine::ClusterRefiner;
-use crate::types::backend::SmartcoreRF;
-use crate::types::TypeClassifier;
 
 #[derive(Args)]
 pub struct PredictArgs {
@@ -101,14 +99,12 @@ impl PredictArgs {
 
         // 1. Load gene + feature tables
         info!("Loading gene table from {:?}", self.genes);
-        let mut genes =
-            GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
+        let mut genes = GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
         info!("Loaded {} genes", genes.len());
 
         for feat_path in &self.features {
             info!("Loading features from {:?}", feat_path);
-            let feat_genes =
-                FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
+            let feat_genes = FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
             // Merge domains into existing genes by protein_id
             let domain_map: BTreeMap<String, Vec<_>> = feat_genes
                 .into_iter()
@@ -135,11 +131,10 @@ impl PredictArgs {
         hmmer::filter_by_pvalue(&mut genes, self.p_filter);
 
         // Sort
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
+        for gene in &mut genes {
+            gene.protein.domains.sort_by_key(|d| (d.start, d.end));
+        }
 
         // 3. Predict probabilities
         info!("Predicting cluster probabilities");
@@ -155,9 +150,7 @@ impl PredictArgs {
             &genes,
         )?;
         FeatureTable::write_from_genes(
-            std::fs::File::create(
-                self.output_dir.join(format!("{}.features.tsv", base)),
-            )?,
+            std::fs::File::create(self.output_dir.join(format!("{}.features.tsv", base)))?,
             &genes,
         )?;
 
@@ -176,9 +169,7 @@ impl PredictArgs {
             log::warn!("No gene clusters found");
             if self.force_tsv {
                 ClusterTable::write_from_clusters(
-                    std::fs::File::create(
-                        self.output_dir.join(format!("{}.clusters.tsv", base)),
-                    )?,
+                    std::fs::File::create(self.output_dir.join(format!("{}.clusters.tsv", base)))?,
                     &[],
                 )?;
             }
@@ -188,24 +179,13 @@ impl PredictArgs {
 
         // 5. Predict types
         info!("Predicting cluster types");
-        let mut classifier = TypeClassifier::new(vec![
-            "Alkaloid".into(),
-            "NRP".into(),
-            "Polyketide".into(),
-            "RiPP".into(),
-            "Saccharide".into(),
-            "Terpene".into(),
-        ]);
-        let rf = SmartcoreRF::new(6);
-        classifier.set_model(Box::new(rf));
-        let _ = classifier.predict_types(&mut clusters);
+        let classifier = super::run::load_type_classifier(&data_dir)?;
+        classifier.predict_types(&mut clusters)?;
 
         // 6. Write output
         info!("Writing results to {:?}", self.output_dir);
         ClusterTable::write_from_clusters(
-            std::fs::File::create(
-                self.output_dir.join(format!("{}.clusters.tsv", base)),
-            )?,
+            std::fs::File::create(self.output_dir.join(format!("{}.clusters.tsv", base)))?,
             &clusters,
         )?;
 
@@ -220,11 +200,7 @@ impl PredictArgs {
             for cluster in &clusters {
                 let gbk_path = self.output_dir.join(format!("{}.gbk", cluster.id));
                 let source_seq = source_seqs.get(cluster.source_id()).map(|s| s.as_str());
-                genbank::write_cluster_gbk(
-                    std::fs::File::create(&gbk_path)?,
-                    cluster,
-                    source_seq,
-                )?;
+                genbank::write_cluster_gbk(std::fs::File::create(&gbk_path)?, cluster, source_seq)?;
             }
         }
 

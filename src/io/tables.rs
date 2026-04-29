@@ -199,6 +199,18 @@ pub struct ClusterRow {
     #[serde(default = "default_type")]
     pub r#type: String,
     #[serde(default)]
+    pub alkaloid_probability: f64,
+    #[serde(default)]
+    pub nrp_probability: f64,
+    #[serde(default)]
+    pub polyketide_probability: f64,
+    #[serde(default)]
+    pub ripp_probability: f64,
+    #[serde(default)]
+    pub saccharide_probability: f64,
+    #[serde(default)]
+    pub terpene_probability: f64,
+    #[serde(default)]
     pub proteins: String,
     #[serde(default)]
     pub domains: String,
@@ -241,6 +253,12 @@ impl ClusterTable {
                     .as_ref()
                     .map(|t| t.to_string())
                     .unwrap_or_else(|| "Unknown".to_string()),
+                alkaloid_probability: type_probability(cluster, "Alkaloid"),
+                nrp_probability: type_probability(cluster, "NRP"),
+                polyketide_probability: type_probability(cluster, "Polyketide"),
+                ripp_probability: type_probability(cluster, "RiPP"),
+                saccharide_probability: type_probability(cluster, "Saccharide"),
+                terpene_probability: type_probability(cluster, "Terpene"),
                 proteins: proteins.join(";"),
                 domains: domains.join(";"),
             })?;
@@ -248,4 +266,8 @@ impl ClusterTable {
         wtr.flush()?;
         Ok(())
     }
+}
+
+fn type_probability(cluster: &Cluster, key: &str) -> f64 {
+    cluster.type_probabilities.get(key).copied().unwrap_or(0.0)
 }

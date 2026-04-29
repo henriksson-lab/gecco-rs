@@ -36,6 +36,11 @@ pub fn resolve(explicit: Option<&PathBuf>) -> PathBuf {
     }
 
     // Current working directory
+    let candidate = PathBuf::from(DEFAULT_DIR_NAME);
+    if candidate.is_dir() {
+        return candidate;
+    }
+
     PathBuf::from(DEFAULT_DIR_NAME)
 }
 
@@ -50,4 +55,8 @@ pub fn interpro_path(data_dir: &std::path::Path) -> PathBuf {
 
 pub fn crf_model_path(data_dir: &std::path::Path) -> PathBuf {
     data_dir.join("model.crfsuite")
+}
+
+pub fn type_classifier_path(data_dir: &std::path::Path) -> PathBuf {
+    data_dir.join("type_classifier.rf.json")
 }

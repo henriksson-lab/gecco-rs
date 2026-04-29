@@ -341,11 +341,11 @@ fn test_extract_features_domain() {
     ];
 
     let feats = extract_features_domain(&genes);
-    // Domain mode: one feature dict per domain
+    // Domain mode: one ordered feature list per domain
     assert_eq!(feats.len(), 3);
-    assert!(feats[0].contains_key("A"));
-    assert!(feats[1].contains_key("B"));
-    assert!(feats[2].contains_key("C"));
+    assert_eq!(feats[0], vec!["A"]);
+    assert_eq!(feats[1], vec!["B"]);
+    assert_eq!(feats[2], vec!["C"]);
 }
 
 #[test]
@@ -377,11 +377,10 @@ fn test_extract_features_protein() {
     ];
 
     let feats = extract_features_protein(&genes);
-    // Protein mode: one feature dict per gene
+    // Protein mode: one ordered feature list per gene
     assert_eq!(feats.len(), 2);
-    assert!(feats[0].contains_key("A"));
-    assert!(feats[0].contains_key("B"));
-    assert!(feats[1].contains_key("C"));
+    assert_eq!(feats[0], vec!["A", "B"]);
+    assert_eq!(feats[1], vec!["C"]);
 }
 
 #[test]
@@ -642,7 +641,7 @@ fn test_genbank_output_structure() {
 
     let source_dna = "A".repeat(500);
     let mut buf = Vec::new();
-    write_cluster_gbk(&mut buf, &cluster, Some(&source_dna), "0.1.0").unwrap();
+    write_cluster_gbk(&mut buf, &cluster, Some(&source_dna)).unwrap();
     let output = String::from_utf8(buf).unwrap();
 
     // Verify key sections present
@@ -655,7 +654,7 @@ fn test_genbank_output_structure() {
     assert!(output.contains("CDS"));
     assert!(output.contains("misc_feature"));
     assert!(output.contains("PF00394"));
-    assert!(output.contains("GECCO v0.1.0"));
+    assert!(output.contains(concat!("GECCO v", env!("CARGO_PKG_VERSION"))));
     assert!(output.contains("Laura M Carroll"));
 }
 
@@ -850,12 +849,20 @@ fn test_genbank_merged_output() {
         id: "seq1_cluster_1".to_string(),
         genes: vec![
             make_gene(
-                "seq1", "seq1_1", 100, 400, Strand::Coding,
+                "seq1",
+                "seq1_1",
+                100,
+                400,
+                Strand::Coding,
                 vec![make_domain("PF00394", 10, 50, Some(0.95))],
                 Some(0.9),
             ),
             make_gene(
-                "seq1", "seq1_2", 500, 800, Strand::Coding,
+                "seq1",
+                "seq1_2",
+                500,
+                800,
+                Strand::Coding,
                 vec![make_domain("PF07690", 5, 30, Some(0.80))],
                 Some(0.85),
             ),
@@ -872,7 +879,11 @@ fn test_genbank_merged_output() {
     let cluster2 = Cluster {
         id: "seq2_cluster_1".to_string(),
         genes: vec![make_gene(
-            "seq2", "seq2_1", 200, 600, Strand::Reverse,
+            "seq2",
+            "seq2_1",
+            200,
+            600,
+            Strand::Reverse,
             vec![make_domain("PF00109", 15, 60, Some(0.88))],
             Some(0.92),
         )],
@@ -890,13 +901,13 @@ fn test_genbank_merged_output() {
     source_seqs.insert("seq2".to_string(), "C".repeat(1000));
 
     let mut buf = Vec::new();
-    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs, "0.1.0")
-        .unwrap();
+    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs).unwrap();
     let output = String::from_utf8(buf).unwrap();
 
     // Should contain two LOCUS entries (one per cluster).
     assert_eq!(
-        output.matches("LOCUS").count(), 2,
+        output.matches("LOCUS").count(),
+        2,
         "merged output should contain exactly 2 LOCUS entries"
     );
 
@@ -915,7 +926,8 @@ fn test_genbank_merged_output() {
     // Both have CDS features.
     // cluster1 has 2 genes, cluster2 has 1 gene => 3 CDS total.
     assert_eq!(
-        output.matches("\n     CDS ").count(), 3,
+        output.matches("\n     CDS ").count(),
+        3,
         "expected 3 CDS features total"
     );
 
@@ -925,11 +937,17 @@ fn test_genbank_merged_output() {
     assert!(output.contains("PF00109"));
 
     // Version string present in both records.
-    assert_eq!(output.matches("GECCO v0.1.0").count(), 2);
+    assert_eq!(
+        output
+            .matches(concat!("GECCO v", env!("CARGO_PKG_VERSION")))
+            .count(),
+        2
+    );
 
     // Each record is terminated by //.
     assert_eq!(
-        output.matches("\n//\n").count(), 2,
+        output.matches("\n//\n").count(),
+        2,
         "each GenBank record should end with //"
     );
 }
@@ -960,14 +978,17 @@ fn test_genbank_merged_matches_python() {
         panic!("Python script failed:\n{}", stderr);
     }
 
-    let py_gbk = String::from_utf8(py_output.stdout)
-        .expect("Python output is not valid UTF-8");
+    let py_gbk = String::from_utf8(py_output.stdout).expect("Python output is not valid UTF-8");
 
     // Build equivalent clusters in Rust.
     let cluster1 = Cluster {
         id: "seq1_cluster_1".to_string(),
         genes: vec![make_gene(
-            "seq1", "seq1_1", 100, 400, Strand::Coding,
+            "seq1",
+            "seq1_1",
+            100,
+            400,
+            Strand::Coding,
             vec![make_domain("PF00394", 10, 50, None)],
             Some(0.9),
         )],
@@ -982,7 +1003,11 @@ fn test_genbank_merged_matches_python() {
     let cluster2 = Cluster {
         id: "seq2_cluster_1".to_string(),
         genes: vec![make_gene(
-            "seq2", "seq2_1", 200, 600, Strand::Reverse,
+            "seq2",
+            "seq2_1",
+            200,
+            600,
+            Strand::Reverse,
             vec![make_domain("PF00109", 15, 60, None)],
             Some(0.85),
         )],
@@ -999,15 +1024,12 @@ fn test_genbank_merged_matches_python() {
     source_seqs.insert("seq2".to_string(), "C".repeat(1000));
 
     let mut buf = Vec::new();
-    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs, "0.1.0")
-        .unwrap();
+    write_clusters_merged(&mut buf, &[cluster1, cluster2], &source_seqs).unwrap();
     let rs_gbk = String::from_utf8(buf).unwrap();
 
     // Extract sections from both outputs for structured comparison.
     // Rather than line-by-line (fragile due to formatting), compare key sections.
-    let count_occurrences = |s: &str, pat: &str| -> usize {
-        s.matches(pat).count()
-    };
+    let count_occurrences = |s: &str, pat: &str| -> usize { s.matches(pat).count() };
 
     // --- Structural checks: same number of records ---
     assert_eq!(
@@ -1065,9 +1087,7 @@ fn test_genbank_merged_matches_python() {
                 }
             } else if in_origin {
                 // Strip line numbers and spaces, keep only sequence chars.
-                let seq: String = line.chars()
-                    .filter(|c| c.is_alphabetic())
-                    .collect();
+                let seq: String = line.chars().filter(|c| c.is_alphabetic()).collect();
                 current.push_str(&seq.to_lowercase());
             }
         }
@@ -1076,12 +1096,19 @@ fn test_genbank_merged_matches_python() {
 
     let py_origins = extract_origins(&py_gbk);
     let rs_origins = extract_origins(&rs_gbk);
-    assert_eq!(py_origins.len(), rs_origins.len(), "different number of ORIGIN blocks");
+    assert_eq!(
+        py_origins.len(),
+        rs_origins.len(),
+        "different number of ORIGIN blocks"
+    );
     for (i, (py_seq, rs_seq)) in py_origins.iter().zip(rs_origins.iter()).enumerate() {
         assert_eq!(
-            py_seq, rs_seq,
+            py_seq,
+            rs_seq,
             "ORIGIN sequence differs for record {} (py len={}, rs len={})",
-            i, py_seq.len(), rs_seq.len()
+            i,
+            py_seq.len(),
+            rs_seq.len()
         );
     }
 

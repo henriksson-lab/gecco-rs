@@ -102,9 +102,10 @@ fn gene_color(gene: &Gene) -> GeneColor {
     let funcs = gene.functions();
     let color = if funcs.contains("transporter activity") {
         (100, 149, 237)
-    } else if funcs.iter().any(|f| {
-        f.contains("regulation") || f.contains("regulatory") || f.contains("signaling")
-    }) {
+    } else if funcs
+        .iter()
+        .any(|f| f.contains("regulation") || f.contains("regulatory") || f.contains("signaling"))
+    {
         (46, 139, 86)
     } else if funcs.contains("catalytic activity") || funcs.contains("binding") {
         (129, 14, 21)
@@ -131,10 +132,7 @@ fn gene_color(gene: &Gene) -> GeneColor {
 /// - CDS features for genes with qualifiers
 /// - misc_feature entries for protein domains
 /// - Full DNA sequence (if `source_seq` is provided)
-pub fn cluster_to_seq(
-    cluster: &Cluster,
-    source_seq: Option<&str>,
-) -> Seq {
+pub fn cluster_to_seq(cluster: &Cluster, source_seq: Option<&str>) -> Seq {
     let version = env!("CARGO_PKG_VERSION");
     let now = current_date();
 
@@ -143,7 +141,7 @@ pub fn cluster_to_seq(
         .map(|seq| {
             let start = (cluster.start() as usize).saturating_sub(1);
             let end = (cluster.end() as usize).min(seq.len());
-            seq[start..end].as_bytes().to_vec()
+            seq.as_bytes()[start..end].to_vec()
         })
         .unwrap_or_default();
 
@@ -165,21 +163,17 @@ pub fn cluster_to_seq(
         }
         if let Some(tt) = gene.qualifiers.get("transl_table") {
             for v in tt {
-                qualifiers.push((
-                    Cow::from("transl_table"),
-                    Some(v.clone()),
-                ));
+                qualifiers.push((Cow::from("transl_table"), Some(v.clone())));
             }
         }
-        qualifiers.push((
-            Cow::from("locus_tag"),
-            Some(gene.protein.id.clone()),
-        ));
+        qualifiers.push((Cow::from("locus_tag"), Some(gene.protein.id.clone())));
         if !gene.protein.seq.is_empty() {
-            qualifiers.push((
-                Cow::from("translation"),
-                Some(format!("{}*", gene.protein.seq)),
-            ));
+            let translation = if gene.protein.seq.ends_with('*') {
+                gene.protein.seq.clone()
+            } else {
+                format!("{}*", gene.protein.seq)
+            };
+            qualifiers.push((Cow::from("translation"), Some(translation)));
         }
 
         // Function
@@ -191,18 +185,9 @@ pub fn cluster_to_seq(
 
         // Colors
         let color = gene_color(gene);
-        qualifiers.push((
-            Cow::from("colour"),
-            Some(color.rgb_str()),
-        ));
-        qualifiers.push((
-            Cow::from("ApEinfo_fwdcolor"),
-            Some(color.hex_str()),
-        ));
-        qualifiers.push((
-            Cow::from("ApEinfo_revcolor"),
-            Some(color.hex_str()),
-        ));
+        qualifiers.push((Cow::from("colour"), Some(color.rgb_str())));
+        qualifiers.push((Cow::from("ApEinfo_fwdcolor"), Some(color.hex_str())));
+        qualifiers.push((Cow::from("ApEinfo_revcolor"), Some(color.hex_str())));
 
         features.push(Feature {
             kind: Cow::from("CDS"),
@@ -216,25 +201,16 @@ pub fn cluster_to_seq(
             let mut dom_quals = Vec::new();
 
             // inference
-            dom_quals.push((
-                Cow::from("inference"),
-                Some("protein motif".to_string()),
-            ));
+            dom_quals.push((Cow::from("inference"), Some("protein motif".to_string())));
 
             // db_xref
             if let Some(xrefs) = domain.qualifiers.get("db_xref") {
                 for xref in xrefs {
-                    dom_quals.push((
-                        Cow::from("db_xref"),
-                        Some(xref.clone()),
-                    ));
+                    dom_quals.push((Cow::from("db_xref"), Some(xref.clone())));
                 }
             }
             for go_term in &domain.go_terms {
-                dom_quals.push((
-                    Cow::from("db_xref"),
-                    Some(go_term.accession.clone()),
-                ));
+                dom_quals.push((Cow::from("db_xref"), Some(go_term.accession.clone())));
             }
 
             // note
@@ -250,18 +226,12 @@ pub fn cluster_to_seq(
             // function
             if let Some(funcs) = domain.qualifiers.get("function") {
                 for f in funcs {
-                    dom_quals.push((
-                        Cow::from("function"),
-                        Some(f.clone()),
-                    ));
+                    dom_quals.push((Cow::from("function"), Some(f.clone())));
                 }
             }
 
             // standard_name
-            dom_quals.push((
-                Cow::from("standard_name"),
-                Some(domain.name.clone()),
-            ));
+            dom_quals.push((Cow::from("standard_name"), Some(domain.name.clone())));
 
             features.push(Feature {
                 kind: Cow::from("misc_feature"),
@@ -350,11 +320,7 @@ fn build_gecco_comment(cluster: &Cluster, version: &str) -> String {
     let mut lines = Vec::new();
     lines.push("##GECCO-Data-START##".to_string());
     lines.push(format!("{:<27}:: GECCO v{}", "version", version));
-    lines.push(format!(
-        "{:<27}:: {}",
-        "creation_date",
-        chrono_like_now()
-    ));
+    lines.push(format!("{:<27}:: {}", "creation_date", chrono_like_now()));
 
     if let Some(ref ct) = cluster.cluster_type {
         if !ct.is_unknown() {
@@ -427,9 +393,8 @@ fn current_date() -> Date {
     // Approximate date calculation
     let days = since_epoch / 86400;
     let (year, month, day) = days_to_ymd(days as i64);
-    Date::from_ymd(year as i32, month as u32, day as u32).unwrap_or_else(|_| {
-        Date::from_ymd(2025, 1, 1).unwrap()
-    })
+    Date::from_ymd(year as i32, month as u32, day as u32)
+        .unwrap_or_else(|_| Date::from_ymd(2025, 1, 1).unwrap())
 }
 
 /// Simple ISO-like timestamp for creation_date.
@@ -485,10 +450,7 @@ mod tests {
             qualifiers: {
                 let mut q = BTreeMap::new();
                 q.insert("db_xref".to_string(), vec!["PFAM:PF00001".to_string()]);
-                q.insert(
-                    "function".to_string(),
-                    vec!["Test function".to_string()],
-                );
+                q.insert("function".to_string(), vec!["Test function".to_string()]);
                 q
             },
         };
@@ -540,14 +502,8 @@ mod tests {
 
         // Should have 1 CDS + 1 misc_feature
         assert_eq!(seq.features.len(), 2);
-        assert_eq!(
-            seq.features[0].kind,
-            Cow::from("CDS")
-        );
-        assert_eq!(
-            seq.features[1].kind,
-            Cow::from("misc_feature")
-        );
+        assert_eq!(seq.features[0].kind, Cow::from("CDS"));
+        assert_eq!(seq.features[1].kind, Cow::from("misc_feature"));
     }
 
     #[test]

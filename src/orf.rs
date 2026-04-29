@@ -6,9 +6,10 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
-use log::{debug, info};
+use log::debug;
 
 use crate::model::{Gene, Protein, Strand};
+use crate::output::{RunOutput, StdioOutput};
 
 /// Record representing a DNA sequence.
 #[derive(Debug, Clone)]
@@ -62,6 +63,16 @@ impl Default for ProdigalFinder {
 
 impl ORFFinder for ProdigalFinder {
     fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
+        self.find_genes_with_output(records, &StdioOutput)
+    }
+}
+
+impl ProdigalFinder {
+    pub fn find_genes_with_output(
+        &self,
+        records: &[SeqRecord],
+        output: &dyn RunOutput,
+    ) -> Result<Vec<Gene>> {
         let config = prodigal_rs::ProdigalConfig {
             translation_table: self.translation_table.unwrap_or(11),
             closed_ends: self.closed_ends,
@@ -74,15 +85,21 @@ impl ORFFinder for ProdigalFinder {
 
         // Create a reusable predictor for metagenomic mode (caches models + buffers)
         let meta_predictor = if self.metagenome {
-            Some(prodigal_rs::MetaPredictor::with_config(config.clone())
-                .context("creating MetaPredictor")?)
+            Some(
+                prodigal_rs::MetaPredictor::with_config(config.clone())
+                    .context("creating MetaPredictor")?,
+            )
         } else {
             None
         };
 
         for record in records {
             if record.seq.len() < 20 {
-                debug!("Skipping short sequence {} ({} bp)", record.id, record.seq.len());
+                debug!(
+                    "Skipping short sequence {} ({} bp)",
+                    record.id,
+                    record.seq.len()
+                );
                 continue;
             }
 
@@ -91,7 +108,11 @@ impl ORFFinder for ProdigalFinder {
             } else {
                 let training = prodigal_rs::train_with(record.seq.as_bytes(), &config)
                     .with_context(|| {
-                        format!("training Prodigal on sequence {} ({} bp)", record.id, record.seq.len())
+                        format!(
+                            "training Prodigal on sequence {} ({} bp)",
+                            record.id,
+                            record.seq.len()
+                        )
                     })?;
                 prodigal_rs::predict_with(record.seq.as_bytes(), &training, &config)
             }
@@ -115,7 +136,10 @@ impl ORFFinder for ProdigalFinder {
                 };
 
                 let nuc_seq = extract_subseq(&record.seq, start, stop, strand);
-                let prot_seq = translate_dna(&nuc_seq, tt);
+                let mut prot_seq = translate_dna(&nuc_seq, tt);
+                if orf.start_codon != prodigal_rs::StartCodon::Edge && !prot_seq.is_empty() {
+                    prot_seq.replace_range(0..1, "M");
+                }
 
                 let protein_id = format!("{}_{}", record.id, j + 1);
                 let protein = Protein::new(&protein_id, prot_seq);
@@ -125,10 +149,7 @@ impl ORFFinder for ProdigalFinder {
                     "inference".to_string(),
                     vec!["ab initio prediction:Prodigal".to_string()],
                 );
-                qualifiers.insert(
-                    "transl_table".to_string(),
-                    vec![tt.to_string()],
-                );
+                qualifiers.insert("transl_table".to_string(), vec![tt.to_string()]);
 
                 all_genes.push(Gene {
                     source_id: record.id.clone(),
@@ -141,12 +162,12 @@ impl ORFFinder for ProdigalFinder {
                 });
             }
 
-            info!(
+            output.stderr(format_args!(
                 "Found {} genes in {} ({} bp)",
                 predicted.len(),
                 record.id,
                 record.seq.len()
-            );
+            ))?;
         }
 
         Ok(all_genes)
@@ -158,7 +179,7 @@ fn extract_subseq(seq: &str, start: usize, end: usize, strand: Strand) -> Vec<u8
     // Coordinates are 1-based inclusive
     let s = (start.saturating_sub(1)).min(seq.len());
     let e = end.min(seq.len());
-    let subseq = seq[s..e].as_bytes();
+    let subseq = &seq.as_bytes()[s..e];
 
     match strand {
         Strand::Coding => subseq.to_vec(),
@@ -184,7 +205,7 @@ fn reverse_complement(seq: &[u8]) -> Vec<u8> {
 /// Translate a DNA sequence to protein using the given translation table.
 ///
 /// Supports table 11 (standard bacterial/archaeal) and table 4 (Mycoplasma).
-/// Translates in reading frame 0, stopping at stop codons or end of sequence.
+/// Translates in reading frame 0, preserving the terminal stop codon.
 fn translate_dna(dna: &[u8], table: u32) -> String {
     let mut protein = String::with_capacity(dna.len() / 3);
 
@@ -193,10 +214,10 @@ fn translate_dna(dna: &[u8], table: u32) -> String {
             break;
         }
         let aa = translate_codon(codon, table);
+        protein.push(aa);
         if aa == '*' {
             break;
         }
-        protein.push(aa);
     }
 
     protein
@@ -276,17 +297,14 @@ mod tests {
 
     #[test]
     fn test_reverse_complement() {
-        assert_eq!(
-            reverse_complement(b"ATGCNN"),
-            b"NNGCAT".to_vec()
-        );
+        assert_eq!(reverse_complement(b"ATGCNN"), b"NNGCAT".to_vec());
         assert_eq!(reverse_complement(b""), b"".to_vec());
     }
 
     #[test]
     fn test_translate_simple() {
         // ATG=M, AAA=K, TAA=*
-        assert_eq!(translate_dna(b"ATGAAATAA", 11), "MK");
+        assert_eq!(translate_dna(b"ATGAAATAA", 11), "MK*");
         // With trailing partial codon
         assert_eq!(translate_dna(b"ATGAAATA", 11), "MK");
     }

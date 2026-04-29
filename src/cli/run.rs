@@ -1,6 +1,7 @@
 //! The `gecco run` subcommand — full pipeline.
 
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -14,9 +15,9 @@ use crate::hmmer::{self, DomainAnnotator, PyHMMER, HMM};
 use crate::interpro::InterPro;
 use crate::io::genbank;
 use crate::io::tables::{ClusterTable, FeatureTable, GeneTable};
-use crate::orf::{ProdigalFinder, ORFFinder};
+use crate::orf::{ORFFinder, ProdigalFinder};
 use crate::refine::ClusterRefiner;
-use crate::types::backend::SmartcoreRF;
+use crate::types::backend::SklearnRF;
 use crate::types::TypeClassifier;
 
 #[derive(Args)]
@@ -147,10 +148,7 @@ impl RunArgs {
 
         // Write initial gene table
         let gene_path = self.output_dir.join(format!("{}.genes.tsv", base));
-        GeneTable::write_from_genes(
-            std::fs::File::create(&gene_path)?,
-            &genes,
-        )?;
+        GeneTable::write_from_genes(std::fs::File::create(&gene_path)?, &genes)?;
 
         // 3. Load InterPro metadata
         let data_dir = data_dir::resolve(self.data_dir.as_ref());
@@ -159,8 +157,12 @@ impl RunArgs {
         // 4. Annotate domains with HMMER
         info!("Annotating protein domains");
         let hmms = load_hmm_configs(&self.hmm, &data_dir)?;
+        let whitelist = load_type_domains(&data_dir)?;
         for hmm_config in &hmms {
-            let annotator = PyHMMER::new(hmm_config.clone());
+            let mut annotator = PyHMMER::new(hmm_config.clone()).with_cpus(self.jobs);
+            if let Some(whitelist) = &whitelist {
+                annotator = annotator.with_whitelist(whitelist.clone());
+            }
             annotator.run(&mut genes, &interpro, None)?;
         }
 
@@ -179,11 +181,10 @@ impl RunArgs {
         hmmer::filter_by_pvalue(&mut genes, self.p_filter);
 
         // Sort genes
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
+        for gene in &mut genes {
+            gene.protein.domains.sort_by_key(|d| (d.start, d.end));
+        }
 
         // 5. Predict probabilities with CRF
         info!("Predicting cluster probabilities");
@@ -193,15 +194,9 @@ impl RunArgs {
         genes = crf.predict_probabilities(&genes, !self.no_pad, None)?;
 
         // Write gene + feature tables
-        GeneTable::write_from_genes(
-            std::fs::File::create(&gene_path)?,
-            &genes,
-        )?;
+        GeneTable::write_from_genes(std::fs::File::create(&gene_path)?, &genes)?;
         let feat_path = self.output_dir.join(format!("{}.features.tsv", base));
-        FeatureTable::write_from_genes(
-            std::fs::File::create(&feat_path)?,
-            &genes,
-        )?;
+        FeatureTable::write_from_genes(std::fs::File::create(&feat_path)?, &genes)?;
 
         // 6. Extract clusters
         info!("Extracting clusters");
@@ -217,12 +212,8 @@ impl RunArgs {
         if clusters.is_empty() {
             log::warn!("No gene clusters found");
             if self.force_tsv {
-                let cluster_path =
-                    self.output_dir.join(format!("{}.clusters.tsv", base));
-                ClusterTable::write_from_clusters(
-                    std::fs::File::create(&cluster_path)?,
-                    &[],
-                )?;
+                let cluster_path = self.output_dir.join(format!("{}.clusters.tsv", base));
+                ClusterTable::write_from_clusters(std::fs::File::create(&cluster_path)?, &[])?;
             }
             return Ok(());
         }
@@ -231,27 +222,14 @@ impl RunArgs {
 
         // 7. Predict types
         info!("Predicting cluster types");
-        let mut classifier = TypeClassifier::new(vec![
-            "Alkaloid".to_string(),
-            "NRP".to_string(),
-            "Polyketide".to_string(),
-            "RiPP".to_string(),
-            "Saccharide".to_string(),
-            "Terpene".to_string(),
-        ]);
-        let rf = SmartcoreRF::new(6);
-        classifier.set_model(Box::new(rf));
-        // Note: type prediction requires a trained RF model; skip if not available
-        let _ = classifier.predict_types(&mut clusters);
+        let classifier = load_type_classifier(&data_dir)?;
+        classifier.predict_types(&mut clusters)?;
 
         // 8. Write output
         info!("Writing results to {:?}", self.output_dir);
 
         let cluster_path = self.output_dir.join(format!("{}.clusters.tsv", base));
-        ClusterTable::write_from_clusters(
-            std::fs::File::create(&cluster_path)?,
-            &clusters,
-        )?;
+        ClusterTable::write_from_clusters(std::fs::File::create(&cluster_path)?, &clusters)?;
 
         if self.merge_gbk {
             let gbk_path = self.output_dir.join(format!("{}.clusters.gbk", base));
@@ -262,22 +240,13 @@ impl RunArgs {
             )?;
         } else {
             for cluster in &clusters {
-                let gbk_path = self
-                    .output_dir
-                    .join(format!("{}.gbk", cluster.id));
+                let gbk_path = self.output_dir.join(format!("{}.gbk", cluster.id));
                 let source_seq = source_seqs.get(cluster.source_id()).map(|s| s.as_str());
-                genbank::write_cluster_gbk(
-                    std::fs::File::create(&gbk_path)?,
-                    cluster,
-                    source_seq,
-                )?;
+                genbank::write_cluster_gbk(std::fs::File::create(&gbk_path)?, cluster, source_seq)?;
             }
         }
 
-        info!(
-            "Found {} cluster(s)",
-            clusters.len()
-        );
+        info!("Found {} cluster(s)", clusters.len());
 
         Ok(())
     }
@@ -307,8 +276,137 @@ pub fn load_interpro(data_dir: &std::path::Path) -> Result<InterPro> {
         let data = std::fs::read(&interpro_path)?;
         InterPro::from_json(&data)
     } else {
-        log::warn!("InterPro metadata not found at {:?}, skipping", interpro_path);
-        Ok(InterPro::from_json(b"[]")?)
+        #[cfg(feature = "bundled-data")]
+        {
+            InterPro::from_json(crate::bundled_data::interpro_json())
+        }
+
+        #[cfg(not(feature = "bundled-data"))]
+        {
+            log::warn!(
+                "InterPro metadata not found at {:?}, skipping",
+                interpro_path
+            );
+            Ok(InterPro::from_json(b"[]")?)
+        }
+    }
+}
+
+/// Load the selected domain list used by Python GECCO's type classifier.
+///
+/// Python GECCO uses this list as a whitelist before HMM annotation, so doing
+/// the same is required for full-pipeline output compatibility.
+pub fn load_type_domains(data_dir: &std::path::Path) -> Result<Option<HashSet<String>>> {
+    let candidates = [
+        data_dir.join("domains.tsv"),
+        PathBuf::from("GECCO/gecco/types/domains.tsv"),
+    ];
+
+    for path in candidates {
+        if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading type domains from {:?}", path))?;
+            let domains = text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect();
+            return Ok(Some(domains));
+        }
+    }
+
+    #[cfg(feature = "bundled-data")]
+    {
+        let domains = crate::bundled_data::domains_tsv()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        Ok(Some(domains))
+    }
+
+    #[cfg(not(feature = "bundled-data"))]
+    {
+        Ok(None)
+    }
+}
+
+/// Load Python GECCO's fitted type classifier exported from sklearn.
+pub fn load_type_classifier(data_dir: &std::path::Path) -> Result<TypeClassifier> {
+    let domains = load_type_domain_order(data_dir)?;
+    let model_bytes = load_type_classifier_bytes(data_dir)?;
+
+    let mut classifier = TypeClassifier::new(vec![
+        "Alkaloid".to_string(),
+        "NRP".to_string(),
+        "Polyketide".to_string(),
+        "RiPP".to_string(),
+        "Saccharide".to_string(),
+        "Terpene".to_string(),
+    ]);
+    classifier.set_domains(domains);
+    classifier.set_model(Box::new(SklearnRF::from_json_slice(&model_bytes)?));
+    Ok(classifier)
+}
+
+fn load_type_domain_order(data_dir: &std::path::Path) -> Result<Vec<String>> {
+    let candidates = [
+        data_dir.join("domains.tsv"),
+        PathBuf::from("GECCO/gecco/types/domains.tsv"),
+    ];
+
+    for path in candidates {
+        if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading type domains from {:?}", path))?;
+            return Ok(text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect());
+        }
+    }
+
+    #[cfg(feature = "bundled-data")]
+    {
+        Ok(crate::bundled_data::domains_tsv()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
+
+    #[cfg(not(feature = "bundled-data"))]
+    {
+        anyhow::bail!("GECCO type domains not found in {:?}", data_dir)
+    }
+}
+
+fn load_type_classifier_bytes(data_dir: &std::path::Path) -> Result<Vec<u8>> {
+    let candidates = [
+        data_dir::type_classifier_path(data_dir),
+        PathBuf::from("GECCO/gecco/types/type_classifier.rf.json"),
+    ];
+
+    for path in candidates {
+        if path.exists() {
+            return std::fs::read(&path)
+                .with_context(|| format!("reading type classifier from {:?}", path));
+        }
+    }
+
+    #[cfg(feature = "bundled-data")]
+    {
+        Ok(crate::bundled_data::type_classifier_rf_json().to_vec())
+    }
+
+    #[cfg(not(feature = "bundled-data"))]
+    {
+        anyhow::bail!("GECCO type classifier not found in {:?}", data_dir)
     }
 }
 
@@ -322,12 +420,17 @@ pub fn load_hmm_configs(custom_hmms: &[PathBuf], data_dir: &std::path::Path) -> 
             .iter()
             .enumerate()
             .map(|(i, path)| {
-                let base = path.file_stem()
+                let base = path
+                    .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("Custom")
                     .to_string();
                 HMM {
-                    id: if custom_hmms.len() == 1 { base } else { format!("Custom{}", i) },
+                    id: if custom_hmms.len() == 1 {
+                        base
+                    } else {
+                        format!("Custom{}", i)
+                    },
                     version: String::new(),
                     url: String::new(),
                     path: path.clone(),
@@ -350,6 +453,20 @@ pub fn load_hmm_configs(custom_hmms: &[PathBuf], data_dir: &std::path::Path) -> 
                 md5: None,
             }])
         } else {
+            #[cfg(feature = "bundled-data")]
+            {
+                Ok(vec![HMM {
+                    id: "Pfam".to_string(),
+                    version: String::new(),
+                    url: String::new(),
+                    path: crate::bundled_data::hmm_path(),
+                    size: None,
+                    relabel_with: Some("s/(PF\\d+).\\d+/\\1/".to_string()),
+                    md5: None,
+                }])
+            }
+
+            #[cfg(not(feature = "bundled-data"))]
             anyhow::bail!(
                 "HMM data file not found at {:?}. \
                  Run `gecco build-data` to download it, or use --data-dir to specify the location.",
@@ -360,7 +477,10 @@ pub fn load_hmm_configs(custom_hmms: &[PathBuf], data_dir: &std::path::Path) -> 
 }
 
 /// Load CRF model from file or from the data directory.
-pub fn load_crf_model(model_path: &Option<PathBuf>, data_dir: &std::path::Path) -> Result<CrfSuiteModel> {
+pub fn load_crf_model(
+    model_path: &Option<PathBuf>,
+    data_dir: &std::path::Path,
+) -> Result<CrfSuiteModel> {
     match model_path {
         Some(path) => CrfSuiteModel::from_file(path),
         None => {
@@ -368,6 +488,12 @@ pub fn load_crf_model(model_path: &Option<PathBuf>, data_dir: &std::path::Path) 
             if default_path.exists() {
                 CrfSuiteModel::from_file(&default_path)
             } else {
+                #[cfg(feature = "bundled-data")]
+                {
+                    CrfSuiteModel::from_bytes(crate::bundled_data::crf_model().to_vec())
+                }
+
+                #[cfg(not(feature = "bundled-data"))]
                 anyhow::bail!(
                     "No CRF model found at {:?}. \
                      Train one with `gecco train` or provide with --model, \

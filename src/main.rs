@@ -12,10 +12,7 @@ fn main() -> anyhow::Result<()> {
         (_, 1) => "warn",
         (_, _) => "error",
     };
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(log_level),
-    )
-    .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     match cli.command {
         Commands::Run(args) => args.execute(),

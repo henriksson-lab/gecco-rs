@@ -5,7 +5,10 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::io::BufRead;
+#[cfg(feature = "bundled-data")]
+use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::{debug, info};
@@ -81,7 +84,8 @@ impl HMM {
                         let before = &stripped[..idx];
                         let after = &stripped[idx + 1..stripped.len() - 1];
                         // Convert sed-style \1 backrefs to regex-style $1
-                        let after = after.replace("\\1", "$1")
+                        let after = after
+                            .replace("\\1", "$1")
                             .replace("\\2", "$2")
                             .replace("\\3", "$3");
                         if let Ok(re) = regex_lite::Regex::new(before) {
@@ -111,7 +115,7 @@ pub trait DomainAnnotator {
 /// A loaded HMM database: metadata + parsed profiles ready for search.
 pub struct LoadedHMM {
     pub meta: HMM,
-    pub profiles: Vec<hmmer::core::Hmm>,
+    pub profiles: Vec<hmmer::Hmm>,
 }
 
 /// Domain annotator using the pure-Rust hmmer crate.
@@ -119,6 +123,7 @@ pub struct PyHMMER {
     pub hmm: HMM,
     pub cpus: Option<usize>,
     pub whitelist: Option<HashSet<String>>,
+    pub thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl PyHMMER {
@@ -127,6 +132,7 @@ impl PyHMMER {
             hmm,
             cpus: None,
             whitelist: None,
+            thread_pool: None,
         }
     }
 
@@ -140,40 +146,50 @@ impl PyHMMER {
         self
     }
 
+    pub fn with_thread_pool(mut self, thread_pool: Arc<rayon::ThreadPool>) -> Self {
+        self.thread_pool = Some(thread_pool);
+        self
+    }
+
     /// Load and optionally filter HMM profiles from the database file.
     /// Supports text `.hmm`, binary `.h3m`, and gzipped variants.
-    pub fn load_hmms(&self) -> Result<Vec<hmmer::core::Hmm>> {
+    pub fn load_hmms(&self) -> Result<Vec<hmmer::Hmm>> {
+        #[cfg(feature = "bundled-data")]
+        if crate::bundled_data::is_hmm_path(&self.hmm.path) {
+            let mut reader = Cursor::new(crate::bundled_data::pfam_h3m());
+            let mut hmms = Vec::new();
+            while let Some(hmm) = hmmer::hmmfile_binary::read_binary_hmm(&mut reader)
+                .map_err(|e| anyhow::anyhow!("reading bundled binary HMM data: {}", e))?
+            {
+                hmms.push(hmm);
+            }
+            return self.filter_hmms(hmms);
+        }
+
         let path_str = self.hmm.path.to_string_lossy();
 
         // Try binary .h3m format first
         if path_str.ends_with(".h3m") {
-            let hmms = hmmer::io::binary::read_all_pressed(&path_str)
+            let hmms = hmmer::hmmfile_binary::read_binary_hmm_file(&self.hmm.path)
                 .map_err(|e| anyhow::anyhow!("reading binary HMM file: {}", e))?;
             return self.filter_hmms(hmms);
         }
 
-        let file = std::fs::File::open(&self.hmm.path)
-            .with_context(|| format!("opening HMM file: {}", self.hmm.path.display()))?;
-        let mut reader = std::io::BufReader::new(file);
-
-        // Try reading as gzip or text
-        let hmms = self.read_hmms_maybe_compressed(&mut reader)?;
+        let hmms = self.read_hmms_maybe_compressed()?;
 
         self.filter_hmms(hmms)
     }
 
-    fn filter_hmms(&self, hmms: Vec<hmmer::core::Hmm>) -> Result<Vec<hmmer::core::Hmm>> {
-        let filtered: Vec<hmmer::core::Hmm> = match &self.whitelist {
+    fn filter_hmms(&self, hmms: Vec<hmmer::Hmm>) -> Result<Vec<hmmer::Hmm>> {
+        let filtered: Vec<hmmer::Hmm> = match &self.whitelist {
             Some(wl) => hmms
                 .into_iter()
-                .filter(|h| {
-                    match &h.acc {
-                        Some(acc) => {
-                            let relabeled = self.hmm.relabel(acc);
-                            wl.contains(&relabeled)
-                        }
-                        None => true,
+                .filter(|h| match &h.acc {
+                    Some(acc) => {
+                        let relabeled = self.hmm.relabel(acc);
+                        wl.contains(&relabeled)
                     }
+                    None => true,
                 })
                 .collect(),
             None => hmms,
@@ -188,19 +204,21 @@ impl PyHMMER {
         Ok(filtered)
     }
 
-    fn read_hmms_maybe_compressed(
-        &self,
-        reader: &mut std::io::BufReader<std::fs::File>,
-    ) -> Result<Vec<hmmer::core::Hmm>> {
-        // Check for gzip magic bytes
+    fn read_hmms_maybe_compressed(&self) -> Result<Vec<hmmer::Hmm>> {
+        let file = std::fs::File::open(&self.hmm.path)
+            .with_context(|| format!("opening HMM file: {}", self.hmm.path.display()))?;
+        let mut reader = std::io::BufReader::new(file);
+
         let buf = reader.fill_buf()?;
         if buf.len() >= 2 && buf[0] == 0x1f && buf[1] == 0x8b {
-            let decoder = flate2::read::GzDecoder::new(reader);
-            let mut gz_reader = std::io::BufReader::new(decoder);
-            hmmer::io::hmm_file::read_all_hmms(&mut gz_reader)
+            let file = std::fs::File::open(&self.hmm.path)
+                .with_context(|| format!("opening HMM file: {}", self.hmm.path.display()))?;
+            let decoder = flate2::read::GzDecoder::new(file);
+            let gz_reader = std::io::BufReader::new(decoder);
+            hmmer::hmmfile::read_hmms(gz_reader)
                 .map_err(|e| anyhow::anyhow!("reading gzipped HMM file: {}", e))
         } else {
-            hmmer::io::hmm_file::read_all_hmms(reader)
+            hmmer::hmmfile::read_hmms(reader)
                 .map_err(|e| anyhow::anyhow!("reading HMM file: {}", e))
         }
     }
@@ -212,30 +230,14 @@ impl PyHMMER {
         &self,
         genes: &mut [Gene],
         interpro: &InterPro,
-        profiles: &[hmmer::core::Hmm],
+        profiles: &[hmmer::Hmm],
         progress: Option<&dyn Fn(usize, usize)>,
     ) -> Result<()> {
         if genes.is_empty() {
             return Ok(());
         }
 
-        let abc = hmmer::alphabet::Alphabet::amino();
-        let mut seqs = Vec::with_capacity(genes.len());
-        for (idx, gene) in genes.iter().enumerate() {
-            let seq = hmmer::alphabet::DigitalSequence::new(
-                &idx.to_string(),
-                "",
-                gene.protein.seq.as_bytes(),
-                &abc,
-            )
-            .with_context(|| {
-                format!(
-                    "digitizing protein sequence for gene {}",
-                    gene.protein.id
-                )
-            })?;
-            seqs.push(seq);
-        }
+        let seqs = digitize_genes(genes);
 
         let total_hmms = profiles.len();
 
@@ -246,9 +248,9 @@ impl PyHMMER {
         &self,
         genes: &mut [Gene],
         interpro: &InterPro,
-        hmms: &[hmmer::core::Hmm],
+        hmms: &[hmmer::Hmm],
         total_hmms: usize,
-        seqs: &[hmmer::alphabet::DigitalSequence],
+        seqs: &[hmmer::sequence::Sequence],
         progress: Option<&dyn Fn(usize, usize)>,
     ) -> Result<()> {
         if let Some(cb) = progress {
@@ -256,72 +258,58 @@ impl PyHMMER {
         }
 
         let z_database = self.hmm.size.unwrap_or(total_hmms) as f64;
-        let z_seqs = seqs.len() as f64;
 
-        let config = hmmer::pipeline::PipelineConfig::default();
         let hmm_id = &self.hmm.id;
         let hmm_meta = &self.hmm;
 
-        use rayon::prelude::*;
+        let process_profile = |hmm_profile: &hmmer::Hmm| {
+            let hits = search_profile(hmm_profile, seqs, z_database);
 
-        let all_domains: Vec<(usize, Domain)> = hmms
-            .par_iter()
-            .flat_map(|hmm_profile| {
-                let (hits, _stats) = hmmer::pipeline::hmmsearch(hmm_profile, seqs, &config);
+            let raw_acc = hmm_profile.acc.as_deref().unwrap_or(&hmm_profile.name);
+            let accession = hmm_meta.relabel(raw_acc);
 
-                let raw_acc = hmm_profile
-                    .acc
-                    .as_deref()
-                    .unwrap_or(&hmm_profile.name);
-                let accession = hmm_meta.relabel(raw_acc);
+            let go_terms = interpro.go_terms_for(&accession);
+            let go_functions = interpro.go_functions_for(&accession);
+            let entry = interpro.get(&accession);
 
-                let go_terms = interpro.go_terms_for(&accession);
-                let go_functions = interpro.go_functions_for(&accession);
-                let entry = interpro.get(&accession);
+            let mut results = Vec::new();
+            for hit in &hits.hits {
+                let gene_idx: usize = match hit.name.parse() {
+                    Ok(idx) => idx,
+                    Err(_) => continue,
+                };
 
-                let mut results = Vec::new();
-                for hit in &hits {
-                    let gene_idx: usize = match hit.name.parse() {
-                        Ok(idx) => idx,
-                        Err(_) => continue,
-                    };
+                for dom in hit.dcl.iter().filter(|dom| dom.is_reported) {
+                    let pvalue = dom.lnp.exp();
+                    let ievalue_corrected = pvalue * z_database;
 
-                    for dom in &hit.domains {
-                        let ievalue_corrected = if z_seqs > 0.0 {
-                            dom.ievalue / z_seqs * z_database
-                        } else {
-                            dom.ievalue
-                        };
-                        let pvalue = ievalue_corrected / z_database;
+                    let mut qualifiers = BTreeMap::new();
+                    qualifiers.insert("inference".to_string(), vec!["protein motif".to_string()]);
 
-                        let mut qualifiers = BTreeMap::new();
-                        qualifiers.insert(
-                            "inference".to_string(),
-                            vec!["protein motif".to_string()],
-                        );
+                    let mut db_xref = vec![format!("{}:{}", hmm_id, accession)];
+                    if let Some(e) = entry {
+                        db_xref.push(format!("InterPro:{}", e.accession));
+                    }
+                    qualifiers.insert("db_xref".to_string(), db_xref);
 
-                        let mut db_xref = vec![format!("{}:{}", hmm_id, accession)];
-                        if let Some(e) = entry {
-                            db_xref.push(format!("InterPro:{}", e.accession));
-                        }
-                        qualifiers.insert("db_xref".to_string(), db_xref);
+                    qualifiers.insert(
+                        "note".to_string(),
+                        vec![
+                            format!("e-value: {:e}", ievalue_corrected),
+                            format!("p-value: {:e}", pvalue),
+                        ],
+                    );
 
-                        qualifiers.insert(
-                            "note".to_string(),
-                            vec![
-                                format!("e-value: {:e}", ievalue_corrected),
-                                format!("p-value: {:e}", pvalue),
-                            ],
-                        );
+                    if let Some(e) = entry {
+                        qualifiers.insert("function".to_string(), vec![e.name.clone()]);
+                    }
 
-                        if let Some(e) = entry {
-                            qualifiers.insert("function".to_string(), vec![e.name.clone()]);
-                        }
-
-                        results.push((gene_idx, Domain {
+                    results.push((
+                        gene_idx,
+                        Domain {
                             name: accession.clone(),
-                            start: dom.ienv as i64,
-                            end: dom.jenv as i64,
+                            start: dom.iali,
+                            end: dom.jali,
                             hmm: hmm_id.clone(),
                             i_evalue: ievalue_corrected,
                             pvalue,
@@ -330,12 +318,33 @@ impl PyHMMER {
                             go_terms: go_terms.clone(),
                             go_functions: go_functions.clone(),
                             qualifiers,
-                        }));
-                    }
+                        },
+                    ));
                 }
-                results
-            })
-            .collect();
+            }
+            results
+        };
+
+        let search_serial = || hmms.iter().flat_map(process_profile).collect();
+
+        let search_parallel = || {
+            use rayon::prelude::*;
+            hmms.par_iter().flat_map(&process_profile).collect()
+        };
+
+        let all_domains: Vec<(usize, Domain)> = if self.cpus == Some(1) {
+            search_serial()
+        } else if let Some(pool) = &self.thread_pool {
+            pool.install(search_parallel)
+        } else if let Some(cpus) = self.cpus.filter(|&cpus| cpus > 0) {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(cpus)
+                .build()
+                .context("building HMMER thread pool")?;
+            pool.install(search_parallel)
+        } else {
+            search_parallel()
+        };
 
         for (gene_idx, domain) in all_domains {
             if gene_idx < genes.len() {
@@ -365,29 +374,79 @@ impl DomainAnnotator for PyHMMER {
             return Ok(());
         }
 
-        let abc = hmmer::alphabet::Alphabet::amino();
-        let mut seqs = Vec::with_capacity(genes.len());
-        for (idx, gene) in genes.iter().enumerate() {
-            let seq = hmmer::alphabet::DigitalSequence::new(
-                &idx.to_string(),
-                "",
-                gene.protein.seq.as_bytes(),
-                &abc,
-            )
-            .with_context(|| {
-                format!(
-                    "digitizing protein sequence for gene {}",
-                    gene.protein.id
-                )
-            })?;
-            seqs.push(seq);
-        }
+        let seqs = digitize_genes(genes);
 
         let hmms = self.load_hmms()?;
         let total_hmms = hmms.len();
 
         self.run_search(genes, interpro, &hmms, total_hmms, &seqs, progress)
     }
+}
+
+fn digitize_genes(genes: &[Gene]) -> Vec<hmmer::sequence::Sequence> {
+    let abc = hmmer::alphabet::Alphabet::amino();
+    genes
+        .iter()
+        .enumerate()
+        .map(|(idx, gene)| {
+            let dsq = abc.digitize(gene.protein.seq.as_bytes());
+            let n = dsq.len().saturating_sub(2);
+            hmmer::sequence::Sequence {
+                name: idx.to_string(),
+                acc: String::new(),
+                desc: gene.protein.id.clone(),
+                dsq,
+                n,
+                l: n,
+            }
+        })
+        .collect()
+}
+
+fn search_profile(
+    hmm_profile: &hmmer::Hmm,
+    seqs: &[hmmer::sequence::Sequence],
+    z_database: f64,
+) -> hmmer::TopHits {
+    let abc = hmmer::Alphabet::new(hmm_profile.abc_type);
+    let mut bg = hmmer::Bg::new(&abc);
+    let mut gm = hmmer::Profile::new(hmm_profile.m, &abc);
+    hmmer::profile::profile_config(hmm_profile, &bg, &mut gm, 100, hmmer::profile::P7_LOCAL);
+    bg.set_filter(hmm_profile.m, &hmm_profile.compo);
+
+    let mut om = hmmer::OProfile::convert(&gm);
+    let mut pli = hmmer::Pipeline::new();
+    pli.new_model(&gm);
+    pli.z = z_database;
+    pli.domz = z_database;
+    pli.z_setby = hmmer::pipeline::ZSetBy::Option;
+    pli.domz_setby = hmmer::pipeline::ZSetBy::Option;
+    pli.do_alignment_display = false;
+
+    let mut hits = hmmer::TopHits::new();
+    for seq in seqs {
+        pli.n_targets = 0;
+        pli.n_past_msv = 0;
+        pli.n_past_bias = 0;
+        pli.n_past_vit = 0;
+        pli.n_past_fwd = 0;
+        let mut local_bg = bg.clone();
+        local_bg.set_length(seq.n);
+        let mut local_hits = hmmer::TopHits::new();
+        if pli.run(
+            &mut gm,
+            &mut om,
+            &local_bg,
+            hmm_profile,
+            seq,
+            &mut local_hits,
+        ) {
+            hits.hits.extend(local_hits.hits.into_iter());
+        }
+    }
+    hits.sort_by_sortkey();
+    hits.threshold(&pli, z_database, z_database);
+    hits
 }
 
 // ---------------------------------------------------------------------------

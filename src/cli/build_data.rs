@@ -8,7 +8,8 @@ use clap::Args;
 use log::info;
 
 const GECCO_VERSION: &str = "0.10.3";
-const INTERPRO_URL: &str = "https://github.com/zellerlab/GECCO/raw/v0.10.3/gecco/interpro/interpro.json";
+const INTERPRO_URL: &str =
+    "https://github.com/zellerlab/GECCO/raw/v0.10.3/gecco/interpro/interpro.json";
 const MODEL_URL: &str = "https://github.com/henriksson-lab/gecco-rs/raw/main/model.crfsuite";
 
 #[derive(Args)]
@@ -33,7 +34,10 @@ impl BuildDataArgs {
         // 1. Download Pfam HMM
         let h3m_path = output_dir.join("Pfam.h3m");
         if h3m_path.exists() && !self.force {
-            info!("{:?} already exists, skipping (use --force to re-download)", h3m_path);
+            info!(
+                "{:?} already exists, skipping (use --force to re-download)",
+                h3m_path
+            );
         } else {
             // Try reading config from .ini if available, otherwise use defaults
             let ini_path = PathBuf::from("GECCO/gecco/hmmer/Pfam.ini");
@@ -48,7 +52,12 @@ impl BuildDataArgs {
             } else {
                 ("Pfam".to_string(), None, None)
             };
-            download_hmm(&id, &h3m_path, md5_expected.as_deref(), fallback_url.as_deref())?;
+            download_hmm(
+                &id,
+                &h3m_path,
+                md5_expected.as_deref(),
+                fallback_url.as_deref(),
+            )?;
         }
 
         // 2. Download InterPro metadata
@@ -97,12 +106,64 @@ impl BuildDataArgs {
             }
         }
 
+        // 4. Copy type-classifier data if available
+        copy_local_data_file(
+            &output_dir,
+            "domains.tsv",
+            &[
+                PathBuf::from("GECCO/gecco/types/domains.tsv"),
+                PathBuf::from("data/domains.tsv"),
+            ],
+            self.force,
+        )?;
+        copy_local_data_file(
+            &output_dir,
+            "type_classifier.rf.json",
+            &[
+                PathBuf::from("GECCO/gecco/types/type_classifier.rf.json"),
+                PathBuf::from("data/type_classifier.rf.json"),
+            ],
+            self.force,
+        )?;
+
         info!("Build data complete. Data directory: {:?}", output_dir);
         Ok(())
     }
 }
 
-fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>, fallback_url: Option<&str>) -> Result<()> {
+fn copy_local_data_file(
+    output_dir: &Path,
+    file_name: &str,
+    candidates: &[PathBuf],
+    force: bool,
+) -> Result<()> {
+    let dst = output_dir.join(file_name);
+    if dst.exists() && !force {
+        info!("{:?} already exists, skipping", dst);
+        return Ok(());
+    }
+
+    for src in candidates {
+        if src.exists() {
+            info!("Copying {} from {:?}", file_name, src);
+            std::fs::copy(src, &dst)?;
+            return Ok(());
+        }
+    }
+
+    log::warn!(
+        "{} not found in local GECCO data; type prediction will require this file",
+        file_name
+    );
+    Ok(())
+}
+
+fn download_hmm(
+    id: &str,
+    output: &Path,
+    expected_md5: Option<&str>,
+    fallback_url: Option<&str>,
+) -> Result<()> {
     // Download pre-built .h3m from GECCO GitHub releases
     let url = format!(
         "https://github.com/zellerlab/GECCO/releases/download/v{}/{}.h3m.gz",
@@ -112,7 +173,11 @@ fn download_hmm(id: &str, output: &Path, expected_md5: Option<&str>, fallback_ur
 
     match download_and_decompress(&url, output) {
         Ok(()) => {
-            info!("Downloaded {:?} ({} bytes)", output, std::fs::metadata(output)?.len());
+            info!(
+                "Downloaded {:?} ({} bytes)",
+                output,
+                std::fs::metadata(output)?.len()
+            );
             if let Some(expected) = expected_md5 {
                 let actual = md5_file(output)?;
                 if actual != expected {
@@ -171,23 +236,24 @@ fn download_and_decompress_hmm_filter(url: &str, output: &Path) -> Result<()> {
 
     // Load domain whitelist
     let domains_path = "GECCO/gecco/types/domains.tsv";
-    let whitelist: std::collections::HashSet<String> = if std::path::Path::new(domains_path).exists() {
-        std::fs::read_to_string(domains_path)?
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect()
-    } else {
-        log::warn!("No domain whitelist found; downloading all HMMs");
-        std::collections::HashSet::new()
-    };
+    let whitelist: std::collections::HashSet<String> =
+        if std::path::Path::new(domains_path).exists() {
+            std::fs::read_to_string(domains_path)?
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
+        } else {
+            log::warn!("No domain whitelist found; downloading all HMMs");
+            std::collections::HashSet::new()
+        };
 
     let data = ureq_get(url)?;
     let decoder = flate2::read::GzDecoder::new(data.as_slice());
-    let mut reader = std::io::BufReader::new(decoder);
+    let reader = std::io::BufReader::new(decoder);
 
     // Read all HMMs, filter by whitelist, write as text .hmm
-    let all_hmms = hmmer::io::hmm_file::read_all_hmms(&mut reader)
+    let all_hmms = hmmer::hmmfile::read_hmms(reader)
         .map_err(|e| anyhow::anyhow!("parsing HMM file: {}", e))?;
 
     info!("Read {} HMMs from source", all_hmms.len());
@@ -209,12 +275,15 @@ fn download_and_decompress_hmm_filter(url: &str, output: &Path) -> Result<()> {
             .collect()
     };
 
-    info!("Filtered to {} HMMs matching domain whitelist", filtered.len());
+    info!(
+        "Filtered to {} HMMs matching domain whitelist",
+        filtered.len()
+    );
 
     // Write as text HMM format
     let mut out = std::fs::File::create(output)?;
     for hmm in &filtered {
-        hmmer::io::hmm_file::write_hmm(&mut out, hmm)
+        hmmer::hmmfile::write_hmm(&mut out, hmm)
             .map_err(|e| anyhow::anyhow!("writing HMM: {}", e))?;
     }
 
@@ -230,7 +299,11 @@ fn parse_ini(content: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for line in content.lines() {
         let line = line.trim();
-        if line.starts_with('[') || line.starts_with('#') || line.starts_with(';') || line.is_empty() {
+        if line.starts_with('[')
+            || line.starts_with('#')
+            || line.starts_with(';')
+            || line.is_empty()
+        {
             continue;
         }
         if let Some((key, val)) = line.split_once('=') {

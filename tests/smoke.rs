@@ -55,13 +55,12 @@ fn test_load_genbank() {
 #[test]
 fn test_prodigal_gene_finding() {
     // orphos-core uses deep recursion; run in a thread with larger stack
-    let _result = std::thread::Builder::new()
+    std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024) // 16 MB stack
         .spawn(test_prodigal_gene_finding_inner)
         .unwrap()
         .join()
         .unwrap();
-    return;
 }
 
 fn test_prodigal_gene_finding_inner() {
@@ -87,8 +86,12 @@ fn test_prodigal_gene_finding_inner() {
         assert!(gene.start < gene.end, "start < end");
         assert!(!gene.protein.seq.is_empty(), "protein should be translated");
         assert!(
-            gene.protein.seq.chars().all(|c: char| c.is_ascii_alphabetic()),
-            "protein should be amino acids only"
+            gene.protein
+                .seq
+                .char_indices()
+                .all(|(i, c)| c.is_ascii_alphabetic()
+                    || (c == '*' && i + 1 == gene.protein.seq.len())),
+            "protein should be amino acids with an optional terminal stop"
         );
     }
 
@@ -174,10 +177,17 @@ fn test_hmmer_annotation() {
     annotator.run(&mut genes, &interpro, None).unwrap();
 
     let total_domains: usize = genes.iter().map(|g| g.protein.domains.len()).sum();
-    eprintln!("Found {} domains across {} genes", total_domains, genes.len());
+    eprintln!(
+        "Found {} domains across {} genes",
+        total_domains,
+        genes.len()
+    );
 
     // Python test: at least some genes should get domains
-    let annotated = genes.iter().filter(|g| !g.protein.domains.is_empty()).count();
+    let annotated = genes
+        .iter()
+        .filter(|g| !g.protein.domains.is_empty())
+        .count();
     assert!(annotated > 0, "at least some genes should have domains");
 
     // Validate domain properties
@@ -239,11 +249,7 @@ fn test_load_gene_table() {
     eprintln!("Loaded {} genes from gene table", genes.len());
 
     // Python test expects 23 genes
-    assert!(
-        genes.len() >= 20,
-        "expected ~23 genes, got {}",
-        genes.len()
-    );
+    assert!(genes.len() >= 20, "expected ~23 genes, got {}", genes.len());
 }
 
 // ---------------------------------------------------------------------------
@@ -275,10 +281,16 @@ fn test_refine_from_feature_table() {
     };
 
     let clusters = refiner.iter_clusters(&genes);
-    eprintln!("Found {} cluster(s) from simulated predictions", clusters.len());
+    eprintln!(
+        "Found {} cluster(s) from simulated predictions",
+        clusters.len()
+    );
 
     // With all probabilities at 0.95, should find at least one cluster
-    assert!(!clusters.is_empty(), "should find clusters with high probabilities");
+    assert!(
+        !clusters.is_empty(),
+        "should find clusters with high probabilities"
+    );
 
     for cluster in &clusters {
         assert!(!cluster.genes.is_empty());
@@ -329,13 +341,7 @@ fn test_genbank_roundtrip() {
     };
 
     let mut buf = Vec::new();
-    gecco::io::genbank::write_cluster_gbk(
-        &mut buf,
-        &cluster,
-        Some(source_seq),
-        env!("CARGO_PKG_VERSION"),
-    )
-    .unwrap();
+    gecco::io::genbank::write_cluster_gbk(&mut buf, &cluster, Some(source_seq)).unwrap();
 
     let output = String::from_utf8(buf).unwrap();
     assert!(output.contains("LOCUS"));
@@ -355,7 +361,6 @@ fn test_genbank_roundtrip() {
 fn test_load_crfsuite_model() {
     use gecco::crf::backend::CrfSuiteModel;
     use gecco::crf::CrfModel;
-    use std::collections::HashMap;
 
     let model_path = Path::new("GECCO/gecco/crf/model.crfsuite");
     if !model_path.exists() {
@@ -378,17 +383,9 @@ fn test_load_crfsuite_model() {
 
     // Test marginal prediction with some features
     let features = vec![
-        {
-            let mut m = HashMap::new();
-            m.insert("PF00750".to_string(), true);
-            m
-        },
-        HashMap::new(),
-        {
-            let mut m = HashMap::new();
-            m.insert("PF13471".to_string(), true);
-            m
-        },
+        vec!["PF00750".to_string()],
+        Vec::new(),
+        vec!["PF13471".to_string()],
     ];
 
     let marginals = model.predict_marginals_single(&features);
@@ -399,7 +396,10 @@ fn test_load_crfsuite_model() {
         let p1 = m.get("1").copied().unwrap_or(0.0);
         eprintln!("  Position {}: P(0)={:.4}, P(1)={:.4}", i, p0, p1);
         // Probabilities should sum to ~1
-        assert!((p0 + p1 - 1.0).abs() < 0.01, "probabilities should sum to 1");
+        assert!(
+            (p0 + p1 - 1.0).abs() < 0.01,
+            "probabilities should sum to 1"
+        );
     }
 
     // PF13471 has negative weight for class 0, so position 2 should favor class 1
@@ -482,7 +482,10 @@ fn test_full_pipeline_from_features() {
     let mut crf = ClusterCRF::new("protein", 20, 1);
     crf.set_model(Box::new(model));
     let predicted = crf.predict_probabilities(&genes, true, None).unwrap();
-    eprintln!("Step 2: Predicted probabilities for {} genes", predicted.len());
+    eprintln!(
+        "Step 2: Predicted probabilities for {} genes",
+        predicted.len()
+    );
 
     // 3. Cluster extraction
     let refiner = ClusterRefiner {

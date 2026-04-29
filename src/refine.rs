@@ -6,29 +6,23 @@ use crate::model::{Cluster, Gene};
 
 /// Pfam domains considered 'biosynthetic' by AntiSMASH.
 pub static BIO_PFAMS: &[&str] = &[
-    "PF00109", "PF02801", "PF08659", "PF00378", "PF08541", "PF08545",
-    "PF02803", "PF00108", "PF02706", "PF03364", "PF08990", "PF00501",
-    "PF00668", "PF08415", "PF00975", "PF03061", "PF00432", "PF00494",
-    "PF03936", "PF01397", "PF04275", "PF00348", "PF02401",
-    "PF04551", "PF00368", "PF00534", "PF00535", "PF02922", "PF01041",
-    "PF00128", "PF00908", "PF02719", "PF04321", "PF01943", "PF02806",
-    "PF02350", "PF02397", "PF04932", "PF01075", "PF00953", "PF01050",
-    "PF03033", "PF01501", "PF05159", "PF04101", "PF02563", "PF08437",
-    "PF02585", "PF01721", "PF02052", "PF02674", "PF03515", "PF04369",
-    "PF08109", "PF08129", "PF09221", "PF09683", "PF10439", "PF11420",
-    "PF11632", "PF11758", "PF12173", "PF04738", "PF04737", "PF04604",
-    "PF05147", "PF08130", "PF00155", "PF00202",
-    "PF00702", "PF06339", "PF04183", "PF10331", "PF03756", "PF00106",
-    "PF01370", "PF00107", "PF08240", "PF00441", "PF02770", "PF02771",
-    "PF08028", "PF01408", "PF02894", "PF00984", "PF00725", "PF03720",
-    "PF03721", "PF07993", "PF02737", "PF00903", "PF00037", "PF04055",
-    "PF00171", "PF00067", "PF01266", "PF01118", "PF02668", "PF00248",
-    "PF01494", "PF01593", "PF03992", "PF00355", "PF01243", "PF00384",
-    "PF01488", "PF00857", "PF04879", "PF08241", "PF08242", "PF00698",
-    "PF00483", "PF00561", "PF00583", "PF01636", "PF01039", "PF00288",
-    "PF00289", "PF02786", "PF01757", "PF02785", "PF02409", "PF01553",
-    "PF02348", "PF00891", "PF01596", "PF04820", "PF02522", "PF08484",
-    "PF08421",
+    "PF00109", "PF02801", "PF08659", "PF00378", "PF08541", "PF08545", "PF02803", "PF00108",
+    "PF02706", "PF03364", "PF08990", "PF00501", "PF00668", "PF08415", "PF00975", "PF03061",
+    "PF00432", "PF00494", "PF03936", "PF01397", "PF04275", "PF00348", "PF02401", "PF04551",
+    "PF00368", "PF00534", "PF00535", "PF02922", "PF01041", "PF00128", "PF00908", "PF02719",
+    "PF04321", "PF01943", "PF02806", "PF02350", "PF02397", "PF04932", "PF01075", "PF00953",
+    "PF01050", "PF03033", "PF01501", "PF05159", "PF04101", "PF02563", "PF08437", "PF02585",
+    "PF01721", "PF02052", "PF02674", "PF03515", "PF04369", "PF08109", "PF08129", "PF09221",
+    "PF09683", "PF10439", "PF11420", "PF11632", "PF11758", "PF12173", "PF04738", "PF04737",
+    "PF04604", "PF05147", "PF08130", "PF00155", "PF00202", "PF00702", "PF06339", "PF04183",
+    "PF10331", "PF03756", "PF00106", "PF01370", "PF00107", "PF08240", "PF00441", "PF02770",
+    "PF02771", "PF08028", "PF01408", "PF02894", "PF00984", "PF00725", "PF03720", "PF03721",
+    "PF07993", "PF02737", "PF00903", "PF00037", "PF04055", "PF00171", "PF00067", "PF01266",
+    "PF01118", "PF02668", "PF00248", "PF01494", "PF01593", "PF03992", "PF00355", "PF01243",
+    "PF00384", "PF01488", "PF00857", "PF04879", "PF08241", "PF08242", "PF00698", "PF00483",
+    "PF00561", "PF00583", "PF01636", "PF01039", "PF00288", "PF00289", "PF02786", "PF01757",
+    "PF02785", "PF02409", "PF01553", "PF02348", "PF00891", "PF01596", "PF04820", "PF02522",
+    "PF08484", "PF08421",
 ];
 
 fn bio_pfams_set() -> HashSet<&'static str> {
@@ -82,10 +76,7 @@ impl ClusterRefiner {
         let mut by_source: std::collections::BTreeMap<&str, Vec<&Gene>> =
             std::collections::BTreeMap::new();
         for gene in genes {
-            by_source
-                .entry(&gene.source_id)
-                .or_default()
-                .push(gene);
+            by_source.entry(&gene.source_id).or_default().push(gene);
         }
 
         let mut results = Vec::new();
@@ -133,10 +124,7 @@ impl ClusterRefiner {
             if in_cluster && !current_genes.is_empty() {
                 cluster_idx += 1;
                 let id = format!("{}_cluster_{}", seq_id, cluster_idx);
-                results.push((
-                    seq_cloned,
-                    Cluster::new(id, current_genes),
-                ));
+                results.push((seq_cloned, Cluster::new(id, current_genes)));
             }
         }
 
@@ -147,8 +135,7 @@ impl ClusterRefiner {
         while !cluster.genes.is_empty() && cluster.genes[0].protein.domains.is_empty() {
             cluster.genes.remove(0);
         }
-        while !cluster.genes.is_empty()
-            && cluster.genes.last().unwrap().protein.domains.is_empty()
+        while !cluster.genes.is_empty() && cluster.genes.last().unwrap().protein.domains.is_empty()
         {
             cluster.genes.pop();
         }
@@ -217,8 +204,8 @@ impl ClusterRefiner {
                 let avg_prob = sum / cluster.genes.len() as f64;
 
                 let p_crit = avg_prob >= self.average_threshold;
-                let bio_crit = domains.iter().filter(|d| bio_set.contains(**d)).count()
-                    >= self.n_biopfams;
+                let bio_crit =
+                    domains.iter().filter(|d| bio_set.contains(**d)).count() >= self.n_biopfams;
                 let cds_crit = cluster.genes.len() >= self.n_cds;
 
                 p_crit && bio_crit && cds_crit
@@ -264,7 +251,12 @@ mod tests {
             gene("c", 300, Some(0.9)),
         ];
         let raw = refiner.raw_clusters(&genes);
-        assert_eq!(raw.len(), 1, "sticky state must produce one cluster, got {}", raw.len());
+        assert_eq!(
+            raw.len(),
+            1,
+            "sticky state must produce one cluster, got {}",
+            raw.len()
+        );
         let (_seq, cluster) = &raw[0];
         let ids: Vec<&str> = cluster.genes.iter().map(|g| g.id()).collect();
         assert_eq!(ids, vec!["a", "b", "c"]);

@@ -77,13 +77,11 @@ impl TrainArgs {
 
         // 1. Load gene + feature tables
         info!("Loading gene table from {:?}", self.genes);
-        let mut genes =
-            GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
+        let mut genes = GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
 
         for feat_path in &self.features {
             info!("Loading features from {:?}", feat_path);
-            let feat_genes =
-                FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
+            let feat_genes = FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
             let domain_map: BTreeMap<String, Vec<_>> = feat_genes
                 .into_iter()
                 .map(|g| (g.protein.id.clone(), g.protein.domains))
@@ -102,11 +100,7 @@ impl TrainArgs {
         hmmer::filter_by_pvalue(&mut genes, self.p_filter);
 
         // Sort
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
 
         // 3. Load cluster table and label genes
         info!("Loading cluster annotations from {:?}", self.clusters);
@@ -116,8 +110,7 @@ impl TrainArgs {
             .from_reader(cluster_reader);
 
         // Read cluster boundaries
-        let mut cluster_ranges: BTreeMap<String, Vec<(i64, i64, String)>> =
-            BTreeMap::new();
+        let mut cluster_ranges: BTreeMap<String, Vec<(i64, i64, String)>> = BTreeMap::new();
         for result in cluster_rdr.deserialize::<crate::io::tables::ClusterRow>() {
             let row = result?;
             cluster_ranges

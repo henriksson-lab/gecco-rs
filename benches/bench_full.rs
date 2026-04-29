@@ -18,7 +18,11 @@ fn main() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
-    println!("Genome: {} ({} bytes)", genome.display(), std::fs::metadata(genome).unwrap().len());
+    println!(
+        "Genome: {} ({} bytes)",
+        genome.display(),
+        std::fs::metadata(genome).unwrap().len()
+    );
     println!("Threads: {}", cpus);
     println!();
 
@@ -42,7 +46,11 @@ fn main() {
         .unwrap()
         .join()
         .unwrap();
-    println!("Gene finding:    {:>6.1}s  ({} genes)", t0.elapsed().as_secs_f64(), genes.len());
+    println!(
+        "Gene finding:    {:>6.1}s  ({} genes)",
+        t0.elapsed().as_secs_f64(),
+        genes.len()
+    );
 
     // 2. HMM annotation
     let hmm_path = Path::new("GECCO/gecco/hmmer/Pfam.h3m");
@@ -70,9 +78,16 @@ fn main() {
         let annotator = PyHMMER::new(hmm);
         annotator.run(&mut genes, &interpro, None).unwrap();
         let n_dom: usize = genes.iter().map(|g| g.protein.domains.len()).sum();
-        println!("HMM annotation:  {:>6.1}s  ({} domains)", t0.elapsed().as_secs_f64(), n_dom);
+        println!(
+            "HMM annotation:  {:>6.1}s  ({} domains)",
+            t0.elapsed().as_secs_f64(),
+            n_dom
+        );
     } else {
-        eprintln!("Warning: {} not found, skipping HMM annotation", hmm_path.display());
+        eprintln!(
+            "Warning: {} not found, skipping HMM annotation",
+            hmm_path.display()
+        );
     }
 
     // 3. CRF prediction
@@ -83,7 +98,11 @@ fn main() {
 
     let t0 = Instant::now();
     let predicted = crf.predict_probabilities(&genes, true, None).unwrap();
-    println!("CRF predict:     {:>6.1}s  ({} genes)", t0.elapsed().as_secs_f64(), predicted.len());
+    println!(
+        "CRF predict:     {:>6.1}s  ({} genes)",
+        t0.elapsed().as_secs_f64(),
+        predicted.len()
+    );
 
     // 4. Cluster refinement
     let t0 = Instant::now();
@@ -95,7 +114,11 @@ fn main() {
         ..Default::default()
     };
     let clusters = refiner.iter_clusters(&predicted);
-    println!("Cluster refine:  {:>6.1}s  ({} clusters)", t0.elapsed().as_secs_f64(), clusters.len());
+    println!(
+        "Cluster refine:  {:>6.1}s  ({} clusters)",
+        t0.elapsed().as_secs_f64(),
+        clusters.len()
+    );
 
     println!();
     println!("Total:           {:>6.1}s", t_total.elapsed().as_secs_f64());

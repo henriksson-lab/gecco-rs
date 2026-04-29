@@ -12,7 +12,11 @@ pub mod train;
 pub mod update_interpro;
 
 #[derive(Parser)]
-#[command(name = "gecco", version, about = "Gene Cluster prediction with Conditional Random Fields")]
+#[command(
+    name = "gecco",
+    version,
+    about = "Gene Cluster prediction with Conditional Random Fields"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

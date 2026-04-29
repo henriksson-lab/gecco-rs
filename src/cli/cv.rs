@@ -92,13 +92,11 @@ impl CvArgs {
 
         // 1. Load data
         info!("Loading gene table from {:?}", self.genes);
-        let mut genes =
-            GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
+        let mut genes = GeneTable::read_to_genes(std::fs::File::open(&self.genes)?)?;
 
         for feat_path in &self.features {
             info!("Loading features from {:?}", feat_path);
-            let feat_genes =
-                FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
+            let feat_genes = FeatureTable::read_to_genes(std::fs::File::open(feat_path)?)?;
             let domain_map: BTreeMap<String, Vec<_>> = feat_genes
                 .into_iter()
                 .map(|g| (g.protein.id.clone(), g.protein.domains))
@@ -116,11 +114,7 @@ impl CvArgs {
         }
         hmmer::filter_by_pvalue(&mut genes, self.p_filter);
 
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
 
         // 3. Load cluster labels
         let cluster_reader = std::fs::File::open(&self.clusters)?;
@@ -141,7 +135,9 @@ impl CvArgs {
             let in_cluster = cluster_ranges
                 .get(&gene.source_id)
                 .map(|ranges| {
-                    ranges.iter().any(|(s, e)| gene.start <= *e && gene.end >= *s)
+                    ranges
+                        .iter()
+                        .any(|(s, e)| gene.start <= *e && gene.end >= *s)
                 })
                 .unwrap_or(false);
             gene.probability = Some(if in_cluster { 1.0 } else { 0.0 });
@@ -166,7 +162,11 @@ impl CvArgs {
         }
 
         let n_seqs = sequences.len();
-        let n_folds = if self.loto { n_seqs } else { self.splits.min(n_seqs) };
+        let n_folds = if self.loto {
+            n_seqs
+        } else {
+            self.splits.min(n_seqs)
+        };
 
         info!("Running {} folds on {} sequences", n_folds, n_seqs);
 
@@ -192,8 +192,7 @@ impl CvArgs {
 
             // Train CRF on training set
             let crf_model = CrfSuiteModel::empty();
-            let mut crf =
-                ClusterCRF::new(&self.feature_type, self.window_size, self.window_step);
+            let mut crf = ClusterCRF::new(&self.feature_type, self.window_size, self.window_step);
             crf.set_model(Box::new(crf_model));
 
             if crf.fit(&train_genes, !self.no_shuffle).is_err() {

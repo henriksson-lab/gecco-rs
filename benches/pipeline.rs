@@ -32,7 +32,11 @@ fn main() {
         .join()
         .unwrap();
     let t1 = t0.elapsed();
-    println!("Gene finding:  {:.3}s  ({} genes)", t1.as_secs_f64(), genes.len());
+    println!(
+        "Gene finding:  {:.3}s  ({} genes)",
+        t1.as_secs_f64(),
+        genes.len()
+    );
 
     // --- 2. HMMER annotation ---
     let hmm_path = Path::new("GECCO/tests/test_hmmer/data/minipfam.hmm");
@@ -54,10 +58,19 @@ fn main() {
         let mut genes_for_hmmer = genes.clone();
         let t0 = Instant::now();
         let annotator = PyHMMER::new(hmm);
-        annotator.run(&mut genes_for_hmmer, &interpro, None).unwrap();
+        annotator
+            .run(&mut genes_for_hmmer, &interpro, None)
+            .unwrap();
         let t1 = t0.elapsed();
-        let n_dom: usize = genes_for_hmmer.iter().map(|g| g.protein.domains.len()).sum();
-        println!("HMMER annot:   {:.3}s  ({} domains)", t1.as_secs_f64(), n_dom);
+        let n_dom: usize = genes_for_hmmer
+            .iter()
+            .map(|g| g.protein.domains.len())
+            .sum();
+        println!(
+            "HMMER annot:   {:.3}s  ({} domains)",
+            t1.as_secs_f64(),
+            n_dom
+        );
     }
 
     // --- 3. CRF prediction ---
@@ -75,9 +88,7 @@ fn main() {
         let n_runs = 10;
         for _ in 0..n_runs {
             let mut crf = ClusterCRF::new("protein", 20, 1);
-            crf.set_model(Box::new(
-                CrfSuiteModel::from_file(model_path).unwrap(),
-            ));
+            crf.set_model(Box::new(CrfSuiteModel::from_file(model_path).unwrap()));
             let t0 = Instant::now();
             let _ = crf.predict_probabilities(&feat_genes, true, None).unwrap();
             total += t0.elapsed();

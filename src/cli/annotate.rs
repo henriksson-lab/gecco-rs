@@ -10,7 +10,7 @@ use crate::data_dir;
 use crate::hmmer::{self, DomainAnnotator, PyHMMER};
 use crate::io::genbank;
 use crate::io::tables::{FeatureTable, GeneTable};
-use crate::orf::{ProdigalFinder, ORFFinder};
+use crate::orf::{ORFFinder, ProdigalFinder};
 
 #[derive(Args)]
 pub struct AnnotateArgs {
@@ -96,15 +96,11 @@ impl AnnotateArgs {
             log::warn!("No genes found");
             if self.force_tsv {
                 GeneTable::write_from_genes(
-                    std::fs::File::create(
-                        self.output_dir.join(format!("{}.genes.tsv", base)),
-                    )?,
+                    std::fs::File::create(self.output_dir.join(format!("{}.genes.tsv", base)))?,
                     &[],
                 )?;
                 FeatureTable::write_from_genes(
-                    std::fs::File::create(
-                        self.output_dir.join(format!("{}.features.tsv", base)),
-                    )?,
+                    std::fs::File::create(self.output_dir.join(format!("{}.features.tsv", base)))?,
                     &[],
                 )?;
             }
@@ -117,7 +113,7 @@ impl AnnotateArgs {
         let interpro = super::run::load_interpro(&data_dir)?;
         let hmms = super::run::load_hmm_configs(&self.hmm, &data_dir)?;
         for hmm_config in &hmms {
-            let annotator = PyHMMER::new(hmm_config.clone());
+            let annotator = PyHMMER::new(hmm_config.clone()).with_cpus(self.jobs);
             annotator.run(&mut genes, &interpro, None)?;
         }
 
@@ -136,11 +132,7 @@ impl AnnotateArgs {
         hmmer::filter_by_pvalue(&mut genes, self.p_filter);
 
         // Sort
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
 
         // 5. Write output
         info!("Writing results to {:?}", self.output_dir);
@@ -149,9 +141,7 @@ impl AnnotateArgs {
             &genes,
         )?;
         FeatureTable::write_from_genes(
-            std::fs::File::create(
-                self.output_dir.join(format!("{}.features.tsv", base)),
-            )?,
+            std::fs::File::create(self.output_dir.join(format!("{}.features.tsv", base)))?,
             &genes,
         )?;
 

@@ -1,36 +1,34 @@
 //! Feature extraction and probability annotation for the CRF.
 
-use std::collections::HashMap;
-
 use crate::model::Gene;
 
 /// Extract features at the gene (protein) level.
-/// Each gene produces one feature dict; domains within the gene are merged.
-pub fn extract_features_protein(genes: &[Gene]) -> Vec<HashMap<String, bool>> {
+/// Each gene produces one ordered feature list; duplicate domains are merged.
+pub fn extract_features_protein(genes: &[Gene]) -> Vec<Vec<String>> {
     genes
         .iter()
         .map(|gene| {
-            gene.protein
-                .domains
-                .iter()
-                .map(|d| (d.name.clone(), true))
-                .collect()
+            let mut features = Vec::new();
+            for domain in &gene.protein.domains {
+                if !features.contains(&domain.name) {
+                    features.push(domain.name.clone());
+                }
+            }
+            features
         })
         .collect()
 }
 
 /// Extract features at the domain level.
-/// Each domain produces its own feature dict; unannotated genes get an empty dict.
-pub fn extract_features_domain(genes: &[Gene]) -> Vec<HashMap<String, bool>> {
+/// Each domain produces its own feature list; unannotated genes get an empty list.
+pub fn extract_features_domain(genes: &[Gene]) -> Vec<Vec<String>> {
     let mut features = Vec::new();
     for gene in genes {
         if gene.protein.domains.is_empty() {
-            features.push(HashMap::new());
+            features.push(Vec::new());
         } else {
             for domain in &gene.protein.domains {
-                let mut m = HashMap::new();
-                m.insert(domain.name.clone(), true);
-                features.push(m);
+                features.push(vec![domain.name.clone()]);
             }
         }
     }

@@ -27,6 +27,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::info;
@@ -34,11 +35,15 @@ use log::info;
 use crate::crf::backend::CrfSuiteModel;
 use crate::crf::ClusterCRF;
 use crate::data_dir;
-use crate::hmmer::{self, PyHMMER, HMM, LoadedHMM};
+use crate::hmmer::{self, LoadedHMM, PyHMMER, HMM};
 use crate::interpro::InterPro;
-use crate::io::{genbank, tables::{ClusterTable, FeatureTable, GeneTable}};
+use crate::io::{
+    genbank,
+    tables::{ClusterTable, FeatureTable, GeneTable},
+};
 use crate::model::{Cluster, Gene};
-use crate::orf::{ProdigalFinder, SeqRecord, ORFFinder};
+use crate::orf::{ProdigalFinder, SeqRecord};
+use crate::output::{RunOutput, StdioOutput};
 use crate::refine::ClusterRefiner;
 
 /// Results from a GECCO pipeline run.
@@ -71,7 +76,10 @@ impl GeccoResults {
     pub fn write_cluster_gbks(&self, dir: &Path) -> Result<()> {
         for cluster in &self.clusters {
             let path = dir.join(format!("{}.gbk", cluster.id));
-            let source_seq = self.source_seqs.get(cluster.source_id()).map(|s| s.as_str());
+            let source_seq = self
+                .source_seqs
+                .get(cluster.source_id())
+                .map(|s| s.as_str());
             genbank::write_cluster_gbk(std::fs::File::create(&path)?, cluster, source_seq)?;
         }
         Ok(())
@@ -93,6 +101,7 @@ pub struct GeccoBuilder {
     metagenome: bool,
     mask: bool,
     jobs: usize,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
     p_filter: f64,
     e_filter: Option<f64>,
     disentangle: bool,
@@ -116,6 +125,7 @@ impl Default for GeccoBuilder {
             metagenome: true,
             mask: false,
             jobs: 0,
+            thread_pool: None,
             p_filter: 1e-9,
             e_filter: None,
             disentangle: false,
@@ -181,6 +191,12 @@ impl GeccoBuilder {
     /// Number of threads for parallelizable steps (0 = auto-detect).
     pub fn jobs(mut self, v: usize) -> Self {
         self.jobs = v;
+        self
+    }
+
+    /// Use a caller-owned Rayon thread pool for GECCO stages that use Rayon.
+    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
+        self.thread_pool = Some(pool);
         self
     }
 
@@ -252,11 +268,24 @@ impl GeccoBuilder {
         let resolved_data_dir = data_dir::resolve(self.data_dir.as_ref());
 
         // CRF model: explicit path > data_dir default
-        let crf_model_path = self.crf_model_path.unwrap_or_else(|| {
-            data_dir::crf_model_path(&resolved_data_dir)
-        });
-        let crf_model = CrfSuiteModel::from_file(&crf_model_path)
-            .with_context(|| format!("loading CRF model from {:?}", crf_model_path))?;
+        let crf_model_path = self
+            .crf_model_path
+            .unwrap_or_else(|| data_dir::crf_model_path(&resolved_data_dir));
+        let crf_model = if crf_model_path.exists() {
+            CrfSuiteModel::from_file(&crf_model_path)
+                .with_context(|| format!("loading CRF model from {:?}", crf_model_path))?
+        } else {
+            #[cfg(feature = "bundled-data")]
+            {
+                CrfSuiteModel::from_bytes(crate::bundled_data::crf_model().to_vec())?
+            }
+
+            #[cfg(not(feature = "bundled-data"))]
+            {
+                CrfSuiteModel::from_file(&crf_model_path)
+                    .with_context(|| format!("loading CRF model from {:?}", crf_model_path))?
+            }
+        };
 
         // HMMs: explicit configs/paths > data_dir default
         let mut hmms = self.hmm_configs;
@@ -283,6 +312,17 @@ impl GeccoBuilder {
                     relabel_with: Some("s/(PF\\d+).\\d+/\\1/".to_string()),
                     md5: None,
                 });
+            } else {
+                #[cfg(feature = "bundled-data")]
+                hmms.push(HMM {
+                    id: "Pfam".to_string(),
+                    version: String::new(),
+                    url: String::new(),
+                    path: crate::bundled_data::hmm_path(),
+                    size: None,
+                    relabel_with: Some("s/(PF\\d+).\\d+/\\1/".to_string()),
+                    md5: None,
+                });
             }
         }
 
@@ -296,10 +336,17 @@ impl GeccoBuilder {
             None => {
                 let default_path = data_dir::interpro_path(&resolved_data_dir);
                 if default_path.exists() {
-                    let data = std::fs::read(&default_path)
-                        .with_context(|| format!("reading InterPro JSON from {:?}", default_path))?;
+                    let data = std::fs::read(&default_path).with_context(|| {
+                        format!("reading InterPro JSON from {:?}", default_path)
+                    })?;
                     InterPro::from_json(&data)?
                 } else {
+                    #[cfg(feature = "bundled-data")]
+                    {
+                        InterPro::from_json(crate::bundled_data::interpro_json())?
+                    }
+
+                    #[cfg(not(feature = "bundled-data"))]
                     InterPro::from_json(b"[]")?
                 }
             }
@@ -309,9 +356,13 @@ impl GeccoBuilder {
         let mut loaded_hmms = Vec::with_capacity(hmms.len());
         for hmm_config in hmms {
             let annotator = PyHMMER::new(hmm_config.clone());
-            let profiles = annotator.load_hmms()
+            let profiles = annotator
+                .load_hmms()
                 .with_context(|| format!("loading HMM profiles from {:?}", hmm_config.path))?;
-            loaded_hmms.push(LoadedHMM { meta: hmm_config, profiles });
+            loaded_hmms.push(LoadedHMM {
+                meta: hmm_config,
+                profiles,
+            });
         }
 
         Ok(Gecco {
@@ -321,6 +372,7 @@ impl GeccoBuilder {
             metagenome: self.metagenome,
             mask: self.mask,
             jobs: self.jobs,
+            thread_pool: self.thread_pool,
             p_filter: self.p_filter,
             e_filter: self.e_filter,
             disentangle: self.disentangle,
@@ -345,6 +397,7 @@ pub struct Gecco {
     metagenome: bool,
     mask: bool,
     jobs: usize,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
     p_filter: f64,
     e_filter: Option<f64>,
     disentangle: bool,
@@ -367,12 +420,21 @@ impl Gecco {
     ///
     /// Steps: gene finding → domain annotation → CRF prediction → cluster refinement.
     pub fn scan(&self, records: &[SeqRecord]) -> Result<GeccoResults> {
+        self.scan_with_output(records, &StdioOutput)
+    }
+
+    /// Run the full pipeline on the given sequences, writing run diagnostics to `output`.
+    pub fn scan_with_output(
+        &self,
+        records: &[SeqRecord],
+        output: &dyn RunOutput,
+    ) -> Result<GeccoResults> {
         let source_seqs: BTreeMap<String, String> = records
             .iter()
             .map(|r| (r.id.clone(), r.seq.clone()))
             .collect();
 
-        let mut genes = self.find_genes(records)?;
+        let mut genes = self.find_genes_with_output(records, output)?;
         if genes.is_empty() {
             return Ok(GeccoResults {
                 genes: Vec::new(),
@@ -381,10 +443,14 @@ impl Gecco {
             });
         }
 
-        self.annotate_domains(&mut genes)?;
-        let genes = self.predict_probabilities(&genes)?;
-        let clusters = self.extract_clusters(&genes);
-        Ok(GeccoResults { genes, clusters, source_seqs })
+        self.annotate_domains_with_output(&mut genes, output)?;
+        let genes = self.predict_probabilities_with_output(&genes, output)?;
+        let clusters = self.extract_clusters_with_output(&genes, output);
+        Ok(GeccoResults {
+            genes,
+            clusters,
+            source_seqs,
+        })
     }
 
     /// Run the pipeline from pre-annotated genes (skipping gene finding and HMMER).
@@ -405,25 +471,64 @@ impl Gecco {
 
     /// Stage 1: Predict ORFs from DNA sequences.
     pub fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
-        info!("Finding genes with Prodigal ({} sequences)", records.len());
+        self.find_genes_with_output(records, &StdioOutput)
+    }
+
+    pub fn find_genes_with_output(
+        &self,
+        records: &[SeqRecord],
+        output: &dyn RunOutput,
+    ) -> Result<Vec<Gene>> {
+        output.stderr(format_args!(
+            "Finding genes with Prodigal ({} sequences)",
+            records.len()
+        ))?;
         let finder = ProdigalFinder {
             metagenome: self.metagenome,
             mask: self.mask,
             cpus: self.jobs,
             ..Default::default()
         };
-        let genes = finder.find_genes(records)?;
-        info!("Found {} genes", genes.len());
+        let genes = finder.find_genes_with_output(records, output)?;
+        output.stderr(format_args!("Found {} genes", genes.len()))?;
         Ok(genes)
     }
 
     /// Stage 2: Annotate genes with protein domains from HMM databases.
     ///
     /// Domains are appended to each gene's `protein.domains` in place.
-    pub fn annotate_domains(&self, genes: &mut Vec<Gene>) -> Result<()> {
-        info!("Annotating protein domains ({} HMM databases)", self.hmms.len());
+    pub fn annotate_domains(&self, genes: &mut [Gene]) -> Result<()> {
+        info!(
+            "Annotating protein domains ({} HMM databases)",
+            self.hmms.len()
+        );
+        self.annotate_domains_inner(genes, None)?;
+        Ok(())
+    }
+
+    pub fn annotate_domains_with_output(
+        &self,
+        genes: &mut [Gene],
+        output: &dyn RunOutput,
+    ) -> Result<()> {
+        output.stderr(format_args!(
+            "Annotating protein domains ({} HMM databases)",
+            self.hmms.len()
+        ))?;
+        self.annotate_domains_inner(genes, Some(output))?;
+        Ok(())
+    }
+
+    fn annotate_domains_inner(
+        &self,
+        genes: &mut [Gene],
+        output: Option<&dyn RunOutput>,
+    ) -> Result<()> {
         for loaded in &self.hmms {
-            let annotator = PyHMMER::new(loaded.meta.clone());
+            let mut annotator = PyHMMER::new(loaded.meta.clone()).with_cpus(self.jobs);
+            if let Some(pool) = &self.thread_pool {
+                annotator = annotator.with_thread_pool(Arc::clone(pool));
+            }
             annotator.run_with_profiles(genes, &self.interpro, &loaded.profiles, None)?;
         }
 
@@ -437,20 +542,36 @@ impl Gecco {
         }
         hmmer::filter_by_pvalue(genes, self.p_filter);
 
-        genes.sort_by(|a, b| {
-            a.source_id
-                .cmp(&b.source_id)
-                .then(a.start.cmp(&b.start))
-        });
+        genes.sort_by(|a, b| a.source_id.cmp(&b.source_id).then(a.start.cmp(&b.start)));
 
         let domain_count: usize = genes.iter().map(|g| g.protein.domains.len()).sum();
-        info!("Found {} domains across all proteins", domain_count);
+        if let Some(output) = output {
+            output.stderr(format_args!(
+                "Found {} domains across all proteins",
+                domain_count
+            ))?;
+        } else {
+            info!("Found {} domains across all proteins", domain_count);
+        }
         Ok(())
     }
 
     /// Stage 3: Predict per-gene cluster probabilities with the CRF model.
     pub fn predict_probabilities(&self, genes: &[Gene]) -> Result<Vec<Gene>> {
         info!("Predicting cluster probabilities");
+        self.predict_probabilities_inner(genes)
+    }
+
+    pub fn predict_probabilities_with_output(
+        &self,
+        genes: &[Gene],
+        output: &dyn RunOutput,
+    ) -> Result<Vec<Gene>> {
+        output.stderr(format_args!("Predicting cluster probabilities"))?;
+        self.predict_probabilities_inner(genes)
+    }
+
+    fn predict_probabilities_inner(&self, genes: &[Gene]) -> Result<Vec<Gene>> {
         let mut crf = ClusterCRF::new(&self.feature_type, self.window_size, 1);
         // CrfSuiteModel needs to be reloaded per call since ClusterCRF takes ownership.
         // We clone via the stored model.
@@ -461,6 +582,23 @@ impl Gecco {
     /// Stage 4: Extract clusters from genes with predicted probabilities.
     pub fn extract_clusters(&self, genes: &[Gene]) -> Vec<Cluster> {
         info!("Extracting clusters");
+        let clusters = self.extract_clusters_inner(genes);
+        info!("Found {} cluster(s)", clusters.len());
+        clusters
+    }
+
+    pub fn extract_clusters_with_output(
+        &self,
+        genes: &[Gene],
+        output: &dyn RunOutput,
+    ) -> Vec<Cluster> {
+        let _ = output.stderr(format_args!("Extracting clusters"));
+        let clusters = self.extract_clusters_inner(genes);
+        let _ = output.stderr(format_args!("Found {} cluster(s)", clusters.len()));
+        clusters
+    }
+
+    fn extract_clusters_inner(&self, genes: &[Gene]) -> Vec<Cluster> {
         let refiner = ClusterRefiner {
             threshold: self.threshold,
             n_cds: self.n_cds,
@@ -468,8 +606,6 @@ impl Gecco {
             trim: self.trim,
             ..Default::default()
         };
-        let clusters = refiner.iter_clusters(genes);
-        info!("Found {} cluster(s)", clusters.len());
-        clusters
+        refiner.iter_clusters(genes)
     }
 }

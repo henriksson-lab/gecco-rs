@@ -110,10 +110,7 @@ struct GeneOntology {
 impl GeneOntology {
     /// Get direct children of a term.
     fn children_of(&self, term_id: &str) -> HashSet<String> {
-        self.children
-            .get(term_id)
-            .cloned()
-            .unwrap_or_default()
+        self.children.get(term_id).cloned().unwrap_or_default()
     }
 
     /// Get all ancestor term IDs (transitive closure of is_a), including self.
@@ -328,12 +325,11 @@ fn parse_interpro_xml<R: Read>(
                         for attr in e.attributes().flatten() {
                             match attr.key.as_ref() {
                                 b"id" => {
-                                    accession =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    accession = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 b"type" => {
-                                    entry_type = String::from_utf8_lossy(&attr.value)
-                                        .to_lowercase();
+                                    entry_type =
+                                        String::from_utf8_lossy(&attr.value).to_lowercase();
                                 }
                                 _ => {}
                             }
@@ -351,8 +347,7 @@ fn parse_interpro_xml<R: Read>(
                         for attr in e.attributes().flatten() {
                             match attr.key.as_ref() {
                                 b"dbkey" => {
-                                    dbkey =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    dbkey = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 b"db" => {
                                     db = String::from_utf8_lossy(&attr.value).to_string();
@@ -376,12 +371,10 @@ fn parse_interpro_xml<R: Read>(
                         for attr in e.attributes().flatten() {
                             match attr.key.as_ref() {
                                 b"class_type" => {
-                                    class_type =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    class_type = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 b"id" => {
-                                    class_id =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    class_id = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 _ => {}
                             }
@@ -435,8 +428,7 @@ fn parse_interpro_xml<R: Read>(
                                 .collect();
                             go_functions.sort_by(|a, b| a.accession.cmp(&b.accession));
 
-                            let mut members_sorted: Vec<String> =
-                                members.iter().cloned().collect();
+                            let mut members_sorted: Vec<String> = members.iter().cloned().collect();
                             members_sorted.sort();
 
                             let mut databases_sorted: Vec<String> =
@@ -482,8 +474,7 @@ fn parse_interpro_xml<R: Read>(
                         for attr in e.attributes().flatten() {
                             match attr.key.as_ref() {
                                 b"dbkey" => {
-                                    dbkey =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    dbkey = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 b"db" => {
                                     db = String::from_utf8_lossy(&attr.value).to_string();
@@ -504,12 +495,10 @@ fn parse_interpro_xml<R: Read>(
                         for attr in e.attributes().flatten() {
                             match attr.key.as_ref() {
                                 b"class_type" => {
-                                    class_type =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    class_type = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 b"id" => {
-                                    class_id =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    class_id = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                                 _ => {}
                             }

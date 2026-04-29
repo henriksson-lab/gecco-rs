@@ -35,8 +35,8 @@ impl CrfSuiteModel {
 
     /// Load a CRFsuite model from raw bytes.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
-        let model = ModelReader::open(&data)
-            .ok_or_else(|| anyhow::anyhow!("failed to parse CRF model"))?;
+        let model =
+            ModelReader::open(&data).ok_or_else(|| anyhow::anyhow!("failed to parse CRF model"))?;
 
         let num_labels = model.num_labels();
         let num_features = model.num_features();
@@ -57,10 +57,8 @@ impl CrfSuiteModel {
                         model.to_attr(feat.src as i32),
                         model.to_label(feat.dst as i32),
                     ) {
-                        state_features_cache.insert(
-                            (attr_name.to_string(), label_name.to_string()),
-                            feat.weight,
-                        );
+                        state_features_cache
+                            .insert((attr_name.to_string(), label_name.to_string()), feat.weight);
                     }
                 }
             }
@@ -95,10 +93,7 @@ impl CrfSuiteModel {
 }
 
 impl CrfModel for CrfSuiteModel {
-    fn predict_marginals_single(
-        &self,
-        features: &[HashMap<String, bool>],
-    ) -> Vec<HashMap<String, f64>> {
+    fn predict_marginals_single(&self, features: &[Vec<String>]) -> Vec<HashMap<String, f64>> {
         let model = ModelReader::open(&self.model_data).unwrap();
         let mut tagger = Crf1dTagger::new(&model);
 
@@ -110,12 +105,7 @@ impl CrfModel for CrfSuiteModel {
             .map(|feat_map| {
                 let attrs: Vec<Attribute> = feat_map
                     .iter()
-                    .filter(|(_, &v)| v)
-                    .filter_map(|(name, _)| {
-                        model
-                            .to_aid(name)
-                            .map(|aid| Attribute { aid, value: 1.0 })
-                    })
+                    .filter_map(|name| model.to_aid(name).map(|aid| Attribute { aid, value: 1.0 }))
                     .collect();
                 Item { contents: attrs }
             })
@@ -149,11 +139,7 @@ impl CrfModel for CrfSuiteModel {
         &self.state_features_cache
     }
 
-    fn fit(
-        &mut self,
-        x: &[Vec<HashMap<String, bool>>],
-        y: &[Vec<String>],
-    ) -> Result<()> {
+    fn fit(&mut self, x: &[Vec<Vec<String>>], y: &[Vec<String>]) -> Result<()> {
         use crfsuite_compliant_rs::crf1d::encode::Crf1dEncoder;
         use crfsuite_compliant_rs::quark::Quark;
         use crfsuite_compliant_rs::train::lbfgs::train_lbfgs;
@@ -167,10 +153,8 @@ impl CrfModel for CrfSuiteModel {
                 label_quark.get(label);
             }
             for feat_map in xseq {
-                for (attr, &present) in feat_map {
-                    if present {
-                        attr_quark.get(attr);
-                    }
+                for attr in feat_map {
+                    attr_quark.get(attr);
                 }
             }
         }
@@ -185,8 +169,7 @@ impl CrfModel for CrfSuiteModel {
                     .map(|feat_map| {
                         let attrs: Vec<Attribute> = feat_map
                             .iter()
-                            .filter(|(_, &v)| v)
-                            .map(|(name, _)| {
+                            .map(|name| {
                                 let aid = attr_quark.to_id(name).unwrap();
                                 Attribute { aid, value: 1.0 }
                             })
@@ -194,10 +177,7 @@ impl CrfModel for CrfSuiteModel {
                         Item { contents: attrs }
                     })
                     .collect();
-                let labels: Vec<i32> = yseq
-                    .iter()
-                    .map(|l| label_quark.to_id(l).unwrap())
-                    .collect();
+                let labels: Vec<i32> = yseq.iter().map(|l| label_quark.to_id(l).unwrap()).collect();
                 Instance {
                     items,
                     labels,
@@ -212,27 +192,24 @@ impl CrfModel for CrfSuiteModel {
 
         // Create encoder (generates features internally)
         let mut encoder = Crf1dEncoder::new(
-            &instances,
-            num_labels,
-            num_attrs,
-            0.0,   // min_freq
-            false,  // possible_states (connect_all_attrs)
-            false,  // possible_transitions (connect_all_edges)
+            &instances, num_labels, num_attrs, 0.0,   // min_freq
+            false, // possible_states (connect_all_attrs)
+            false, // possible_transitions (connect_all_edges)
         );
 
         let mut log_fn: crfsuite_compliant_rs::train::LogFn = Box::new(|_| {});
         let weights = train_lbfgs(
             &mut encoder,
             &instances,
-            1.0,            // c1 (L1 regularization)
-            1.0,            // c2 (L2 regularization)
-            1000,           // max_iterations
-            6,              // num_memories (L-BFGS)
-            1e-5,           // epsilon
-            10,             // period
-            1e-5,           // delta
-            "MoreThuente",  // linesearch
-            20,             // max_linesearch
+            1.0,           // c1 (L1 regularization)
+            1.0,           // c2 (L2 regularization)
+            1000,          // max_iterations
+            6,             // num_memories (L-BFGS)
+            1e-5,          // epsilon
+            10,            // period
+            1e-5,          // delta
+            "MoreThuente", // linesearch
+            20,            // max_linesearch
             &mut log_fn,
         );
 
