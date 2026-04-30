@@ -1,2 +1,29 @@
+# Rust build/package output
 /target/
+
+# Local checkout of the upstream Python GECCO reference tree
 /GECCO/
+
+# Local tool/agent state
+/.codex
+
+# Generated local data/cache directories
+/gecco_data/
+/.tmp/
+
+# Logs, profiling, and coverage artifacts
+*.log
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+perf.data*
+*.perf.data
+
+# Python cache files from helper scripts
+__pycache__/
+*.py[cod]
+
+# OS/editor noise
+.DS_Store
+*~

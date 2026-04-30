@@ -1,6 +1,6 @@
 [package]
 name = "gecco"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
@@ -17,6 +17,8 @@ include = [
     "/benches/**",
     "/tests/**",
     "/scripts/**",
+    "/bundled-data/**",
+    "/build.rs",
     "/Cargo.toml",
     "/Cargo.lock",
     "/README.md",
@@ -87,6 +89,11 @@ prodigal-rs = "0.3"
 
 # HMMER
 hmmer = { package = "hmmer-pure-rs", version = "0.7" }
+
+[build-dependencies]
+flate2 = "1.0"
+sha2 = "0.10"
+ureq = "3"
 
 [profile.release]
 lto = true

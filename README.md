@@ -56,6 +56,14 @@ You can override this with:
 - `--data-dir /path/to/data` on any command
 - The `GECCO_DATA_DIR` environment variable
 
+Alternatively, build with `--features bundled-data` to embed GECCO data in the
+binary. The crate includes the Rust-specific converted models
+(`model.crfsuite`, `type_classifier.rf.json`) and the build script downloads the
+remaining original GECCO v0.10.3 assets from `zellerlab/GECCO` into Cargo's
+`OUT_DIR`, verifies their SHA256 checksums, and embeds them at compile time.
+This includes the large `Pfam.h3m.gz` release asset, so building this feature
+requires network access.
+
 ## Command-Line Usage
 
 Run the full pipeline on a genome:

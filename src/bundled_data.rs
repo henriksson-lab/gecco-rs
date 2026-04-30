@@ -13,27 +13,27 @@ struct BundledFile {
 const FILES: &[BundledFile] = &[
     BundledFile {
         name: "Pfam.h3m",
-        bytes: include_bytes!("../data/Pfam.h3m"),
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/Pfam.h3m")),
     },
     BundledFile {
         name: "interpro.json",
-        bytes: include_bytes!("../GECCO/gecco/interpro/interpro.json"),
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/interpro.json")),
     },
     BundledFile {
         name: "model.crfsuite",
-        bytes: include_bytes!("../GECCO/gecco/crf/model.crfsuite"),
+        bytes: include_bytes!("../bundled-data/model.crfsuite"),
     },
     BundledFile {
         name: "domains.tsv",
-        bytes: include_bytes!("../GECCO/gecco/types/domains.tsv"),
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/domains.tsv")),
     },
     BundledFile {
         name: "type_classifier.rf.json",
-        bytes: include_bytes!("../GECCO/gecco/types/type_classifier.rf.json"),
+        bytes: include_bytes!("../bundled-data/type_classifier.rf.json"),
     },
     BundledFile {
         name: "Pfam.ini",
-        bytes: include_bytes!("../GECCO/gecco/hmmer/Pfam.ini"),
+        bytes: include_bytes!(concat!(env!("OUT_DIR"), "/Pfam.ini")),
     },
 ];
 
