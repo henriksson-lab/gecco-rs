@@ -7,6 +7,7 @@ GECCO-rs is a Rust reimplementation of [GECCO](https://github.com/zellerlab/GECC
 method for identifying putative novel Biosynthetic Gene Clusters (BGCs) in
 genomic and metagenomic data using Conditional Random Fields (CRFs).
 
+* 2026-04-30: GECCO original data can be downloaded during build time. *This is likely what you want but you have to enable the feature as it deviates from typical build expectations: bundled-data*
 * 2026-04-29: Validated to give the same output on real life data. Still an early translation; compare with original gecco on your data before switching. On par or maybe 50% faster than original
 
 ## This is an LLM-mediated faithful (hopefully) translation, not the original code! 
@@ -56,13 +57,26 @@ You can override this with:
 - `--data-dir /path/to/data` on any command
 - The `GECCO_DATA_DIR` environment variable
 
-Alternatively, build with `--features bundled-data` to embed GECCO data in the
-binary. The crate includes the Rust-specific converted models
-(`model.crfsuite`, `type_classifier.rf.json`) and the build script downloads the
-remaining original GECCO v0.10.3 assets from `zellerlab/GECCO` into Cargo's
-`OUT_DIR`, verifies their SHA256 checksums, and embeds them at compile time.
-This includes the large `Pfam.h3m.gz` release asset, so building this feature
-requires network access.
+Alternatively, enable the `bundled-data` feature to embed GECCO data in the
+binary:
+
+```console
+$ cargo build --release --features bundled-data
+```
+
+or when installing from crates.io:
+
+```console
+$ cargo install gecco --features bundled-data
+```
+
+With this feature enabled, `gecco build-data` and `--data-dir` are not required
+for the default GECCO model/database. The crate includes the Rust-specific
+converted models (`model.crfsuite`, `type_classifier.rf.json`) and the build
+script downloads the remaining original GECCO v0.10.3 assets from
+`zellerlab/GECCO` into Cargo's `OUT_DIR`, verifies their SHA256 checksums, and
+embeds them at compile time. This includes the large `Pfam.h3m.gz` release
+asset, so building this feature requires network access.
 
 ## Command-Line Usage
 
