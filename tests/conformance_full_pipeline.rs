@@ -21,11 +21,18 @@ const INTERPRO_DATA_DIR: &str = "GECCO/gecco/interpro";
 const PYTHON_GOLDEN_DIR: &str = "data/bench_python_full";
 const CHECKED_IN_RUST_DIR: &str = "data/bench_rust";
 const BASE: &str = "CP157504.1";
+const ATRANDI_INPUT: &str = "data/atrandi_D2_A5_G7_B11/contigs.fa";
+const ATRANDI_PYTHON_GOLDEN_DIR: &str = "data/atrandi_D2_A5_G7_B11";
+const ATRANDI_BASE: &str = "contigs";
 
 #[test]
 #[ignore]
 fn checked_in_full_pipeline_fixture_is_bitwise_identical_to_python_gecco() {
-    assert_output_dir_bitwise_eq(Path::new(PYTHON_GOLDEN_DIR), Path::new(CHECKED_IN_RUST_DIR));
+    assert_output_dir_bitwise_eq(
+        Path::new(PYTHON_GOLDEN_DIR),
+        Path::new(CHECKED_IN_RUST_DIR),
+        BASE,
+    );
 }
 
 #[test]
@@ -81,15 +88,77 @@ fn generated_full_pipeline_output_is_bitwise_identical_to_python_gecco_inner() {
 
     args.execute().expect("running Rust GECCO full pipeline");
 
-    assert_output_dir_bitwise_eq(Path::new(PYTHON_GOLDEN_DIR), &output_dir);
+    assert_output_dir_bitwise_eq(Path::new(PYTHON_GOLDEN_DIR), &output_dir, BASE);
 }
 
-fn assert_output_dir_bitwise_eq(expected_dir: &Path, actual_dir: &Path) {
+#[test]
+#[ignore]
+fn atrandi_d2_a5_g7_b11_output_is_bitwise_identical_to_python_gecco() {
+    let result = std::thread::Builder::new()
+        .name("atrandi-d2-a5-g7-b11-conformance".to_string())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            std::panic::catch_unwind(
+                atrandi_d2_a5_g7_b11_output_is_bitwise_identical_to_python_gecco_inner,
+            )
+        })
+        .expect("spawning large-stack Atrandi conformance test thread")
+        .join()
+        .expect("joining large-stack Atrandi conformance test thread");
+
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
+}
+
+fn atrandi_d2_a5_g7_b11_output_is_bitwise_identical_to_python_gecco_inner() {
+    require_file(ATRANDI_INPUT);
+    require_file(HMM);
+    require_file(MODEL);
+    require_file(&format!("{INTERPRO_DATA_DIR}/interpro.json"));
+    require_dir(Path::new(ATRANDI_PYTHON_GOLDEN_DIR));
+
+    let output_dir = fresh_output_dir("gecco-rs-atrandi-d2-a5-g7-b11-conformance");
+
+    let args = RunArgs {
+        genome: PathBuf::from(ATRANDI_INPUT),
+        output_dir: output_dir.clone(),
+        data_dir: Some(PathBuf::from(INTERPRO_DATA_DIR)),
+        jobs: 1,
+        mask: true,
+        cds_feature: None,
+        locus_tag: "locus_tag".to_string(),
+        hmm: vec![PathBuf::from(HMM)],
+        e_filter: None,
+        p_filter: 1e-9,
+        disentangle: false,
+        model: Some(PathBuf::from(MODEL)),
+        no_pad: false,
+        cds: 3,
+        threshold: 0.8,
+        edge_distance: 0,
+        no_trim: false,
+        force_tsv: false,
+        merge_gbk: false,
+        antismash_sideload: false,
+    };
+
+    args.execute()
+        .expect("running Rust GECCO Atrandi D2_A5_G7_B11 pipeline");
+
+    assert_output_dir_bitwise_eq(
+        Path::new(ATRANDI_PYTHON_GOLDEN_DIR),
+        &output_dir,
+        ATRANDI_BASE,
+    );
+}
+
+fn assert_output_dir_bitwise_eq(expected_dir: &Path, actual_dir: &Path, base: &str) {
     require_dir(expected_dir);
     require_dir(actual_dir);
 
-    let expected_files = output_files(expected_dir);
-    let actual_files = output_files(actual_dir);
+    let expected_files = output_files(expected_dir, base);
+    let actual_files = output_files(actual_dir, base);
 
     assert_eq!(
         expected_files, actual_files,
@@ -102,7 +171,7 @@ fn assert_output_dir_bitwise_eq(expected_dir: &Path, actual_dir: &Path) {
     }
 }
 
-fn output_files(dir: &Path) -> BTreeSet<PathBuf> {
+fn output_files(dir: &Path, base: &str) -> BTreeSet<PathBuf> {
     std::fs::read_dir(dir)
         .unwrap_or_else(|err| panic!("reading output dir {}: {err}", dir.display()))
         .map(|entry| {
@@ -121,9 +190,9 @@ fn output_files(dir: &Path) -> BTreeSet<PathBuf> {
         })
         .filter(|path: &PathBuf| {
             let name = path.to_string_lossy();
-            name == format!("{BASE}.clusters.tsv")
-                || name == format!("{BASE}.features.tsv")
-                || name == format!("{BASE}.genes.tsv")
+            name == format!("{base}.clusters.tsv")
+                || name == format!("{base}.features.tsv")
+                || name == format!("{base}.genes.tsv")
         })
         .collect()
 }

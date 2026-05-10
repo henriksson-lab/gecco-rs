@@ -4,6 +4,7 @@
 //! extraction of existing CDS annotations from GenBank records.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::debug;
@@ -47,6 +48,7 @@ pub struct ProdigalFinder {
     pub closed_ends: bool,
     pub translation_table: Option<u8>,
     pub cpus: usize,
+    pub thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl Default for ProdigalFinder {
@@ -57,6 +59,7 @@ impl Default for ProdigalFinder {
             closed_ends: false,
             translation_table: Some(11),
             cpus: 0,
+            thread_pool: None,
         }
     }
 }
@@ -80,15 +83,29 @@ impl ProdigalFinder {
             ..Default::default()
         };
 
-        let tt = self.translation_table.unwrap_or(11) as u32;
         let mut all_genes = Vec::new();
 
         // Create a reusable predictor for metagenomic mode (caches models + buffers)
         let meta_predictor = if self.metagenome {
-            Some(
+            let predictor = if let Some(pool) = &self.thread_pool {
+                prodigal_rs::MetaPredictor::with_config_and_thread_pool(
+                    config.clone(),
+                    Arc::clone(pool),
+                )
+            } else if self.cpus > 0 {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(self.cpus)
+                    .stack_size(prodigal_rs::META_PREDICTOR_STACK_SIZE)
+                    .build()
+                    .context("building Prodigal thread pool")?;
+                prodigal_rs::MetaPredictor::with_config_and_thread_pool(
+                    config.clone(),
+                    Arc::new(pool),
+                )
+            } else {
                 prodigal_rs::MetaPredictor::with_config(config.clone())
-                    .context("creating MetaPredictor")?,
-            )
+            };
+            Some(predictor.context("creating MetaPredictor")?)
         } else {
             None
         };
@@ -125,18 +142,19 @@ impl ProdigalFinder {
             })?;
 
             for (j, orf) in predicted.iter().enumerate() {
-                let begin = orf.begin;
-                let end = orf.end;
-                let start = begin.min(end);
-                let stop = begin.max(end);
-
                 let strand = match orf.strand {
                     prodigal_rs::Strand::Forward => Strand::Coding,
                     prodigal_rs::Strand::Reverse => Strand::Reverse,
                 };
 
+                let begin = orf.begin;
+                let end = orf.end;
+                let start = begin.min(end);
+                let stop = begin.max(end);
+
+                let orf_tt = orf.translation_table as u32;
                 let nuc_seq = extract_subseq(&record.seq, start, stop, strand);
-                let mut prot_seq = translate_dna(&nuc_seq, tt);
+                let mut prot_seq = translate_dna(&nuc_seq, orf_tt);
                 if orf.start_codon != prodigal_rs::StartCodon::Edge && !prot_seq.is_empty() {
                     prot_seq.replace_range(0..1, "M");
                 }
@@ -149,7 +167,7 @@ impl ProdigalFinder {
                     "inference".to_string(),
                     vec!["ab initio prediction:Prodigal".to_string()],
                 );
-                qualifiers.insert("transl_table".to_string(), vec![tt.to_string()]);
+                qualifiers.insert("transl_table".to_string(), vec![orf_tt.to_string()]);
 
                 all_genes.push(Gene {
                     source_id: record.id.clone(),

@@ -487,6 +487,7 @@ impl Gecco {
             metagenome: self.metagenome,
             mask: self.mask,
             cpus: self.jobs,
+            thread_pool: self.thread_pool.clone(),
             ..Default::default()
         };
         let genes = finder.find_genes_with_output(records, output)?;

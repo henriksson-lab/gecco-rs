@@ -6,10 +6,15 @@
 
 # Local tool/agent state
 /.codex
+/CLAUDE.md
 
 # Generated local data/cache directories
 /gecco_data/
 /.tmp/
+/data/
+
+# Rust lockfile for this local application checkout
+/Cargo.lock
 
 # Logs, profiling, and coverage artifacts
 *.log

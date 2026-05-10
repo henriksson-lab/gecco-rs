@@ -7,6 +7,7 @@ GECCO-rs is a Rust reimplementation of [GECCO](https://github.com/zellerlab/GECC
 method for identifying putative novel Biosynthetic Gene Clusters (BGCs) in
 genomic and metagenomic data using Conditional Random Fields (CRFs).
 
+* 2026-05-10: Fixed bugs upstream, added tests to this crate
 * 2026-04-30: GECCO original data can be downloaded during build time. *This is likely what you want but you have to enable the feature as it deviates from typical build expectations: bundled-data*
 * 2026-04-29: Validated to give the same output on real life data. Still an early translation; compare with original gecco on your data before switching. On par or maybe 50% faster than original
 
@@ -380,8 +381,6 @@ $ cargo run --release --features bench --bin bench_full
 ```
 
 ## Reference
-
-GECCO can be cited using the following publication:
 
 > **Accurate de novo identification of biosynthetic gene clusters with GECCO**.
 > Laura M Carroll, Martin Larralde, Jonas Simon Fleck, Ruby Ponnudurai, Alessio Milanese, Elisa Cappio Barazzone, Georg Zeller.
