@@ -124,7 +124,7 @@ fn atrandi_d2_a5_g7_b11_output_is_bitwise_identical_to_python_gecco_inner() {
         genome: PathBuf::from(ATRANDI_INPUT),
         output_dir: output_dir.clone(),
         data_dir: Some(PathBuf::from(INTERPRO_DATA_DIR)),
-        jobs: 1,
+        jobs: 20,
         mask: true,
         cds_feature: None,
         locus_tag: "locus_tag".to_string(),

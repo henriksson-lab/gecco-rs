@@ -83,24 +83,26 @@ impl ProdigalFinder {
             ..Default::default()
         };
 
-        let mut all_genes = Vec::new();
-
-        // Create a reusable predictor for metagenomic mode (caches models + buffers)
-        let meta_predictor = if self.metagenome {
-            let predictor = if let Some(pool) = &self.thread_pool {
-                prodigal_rs::MetaPredictor::with_config_and_thread_pool(
-                    config.clone(),
-                    Arc::clone(pool),
-                )
-            } else if self.cpus > 0 {
-                let pool = rayon::ThreadPoolBuilder::new()
+        let thread_pool = if self.cpus > 0 {
+            Some(Arc::new(
+                rayon::ThreadPoolBuilder::new()
                     .num_threads(self.cpus)
                     .stack_size(prodigal_rs::META_PREDICTOR_STACK_SIZE)
                     .build()
-                    .context("building Prodigal thread pool")?;
+                    .context("building Prodigal thread pool")?,
+            ))
+        } else if let Some(pool) = &self.thread_pool {
+            Some(Arc::clone(pool))
+        } else {
+            None
+        };
+
+        // Create a reusable predictor for metagenomic mode (caches models + buffers).
+        let meta_predictor = if self.metagenome {
+            let predictor = if let Some(pool) = &thread_pool {
                 prodigal_rs::MetaPredictor::with_config_and_thread_pool(
                     config.clone(),
-                    Arc::new(pool),
+                    Arc::clone(pool),
                 )
             } else {
                 prodigal_rs::MetaPredictor::with_config(config.clone())
@@ -110,7 +112,22 @@ impl ProdigalFinder {
             None
         };
 
-        for record in records {
+        let prediction_results = if let Some(predictor) = meta_predictor.as_ref() {
+            predict_records_batch(records, predictor).with_context(|| {
+                format!(
+                    "running metagenomic gene prediction on {} sequence(s)",
+                    records.len()
+                )
+            })?
+        } else {
+            records
+                .iter()
+                .map(|record| predict_record(record, &config))
+                .collect::<Result<Vec<_>>>()?
+        };
+
+        let mut all_genes = Vec::new();
+        for (record, predicted) in prediction_results {
             if record.seq.len() < 20 {
                 debug!(
                     "Skipping short sequence {} ({} bp)",
@@ -119,27 +136,6 @@ impl ProdigalFinder {
                 );
                 continue;
             }
-
-            let predicted = if let Some(ref predictor) = meta_predictor {
-                predictor.predict(record.seq.as_bytes())
-            } else {
-                let training = prodigal_rs::train_with(record.seq.as_bytes(), &config)
-                    .with_context(|| {
-                        format!(
-                            "training Prodigal on sequence {} ({} bp)",
-                            record.id,
-                            record.seq.len()
-                        )
-                    })?;
-                prodigal_rs::predict_with(record.seq.as_bytes(), &training, &config)
-            }
-            .with_context(|| {
-                format!(
-                    "running gene prediction on sequence {} ({} bp)",
-                    record.id,
-                    record.seq.len()
-                )
-            })?;
 
             for (j, orf) in predicted.iter().enumerate() {
                 let strand = match orf.strand {
@@ -190,6 +186,62 @@ impl ProdigalFinder {
 
         Ok(all_genes)
     }
+}
+
+fn predict_record<'a>(
+    record: &'a SeqRecord,
+    config: &prodigal_rs::ProdigalConfig,
+) -> Result<(&'a SeqRecord, Vec<prodigal_rs::PredictedGene>)> {
+    if record.seq.len() < 20 {
+        return Ok((record, Vec::new()));
+    }
+
+    let training = prodigal_rs::train_with(record.seq.as_bytes(), config).with_context(|| {
+        format!(
+            "training Prodigal on sequence {} ({} bp)",
+            record.id,
+            record.seq.len()
+        )
+    })?;
+    let predicted = prodigal_rs::predict_with(record.seq.as_bytes(), &training, config)
+        .with_context(|| {
+            format!(
+                "running gene prediction on sequence {} ({} bp)",
+                record.id,
+                record.seq.len()
+            )
+        })?;
+
+    Ok((record, predicted))
+}
+
+fn predict_records_batch<'a>(
+    records: &'a [SeqRecord],
+    predictor: &prodigal_rs::MetaPredictor,
+) -> Result<Vec<(&'a SeqRecord, Vec<prodigal_rs::PredictedGene>)>> {
+    let predicted_records = records
+        .iter()
+        .filter(|record| record.seq.len() >= 20)
+        .collect::<Vec<_>>();
+    let seqs = predicted_records
+        .iter()
+        .map(|record| record.seq.as_bytes())
+        .collect::<Vec<_>>();
+    let mut predicted = predictor.predict_batch(&seqs)?.into_iter();
+
+    records
+        .iter()
+        .map(|record| {
+            if record.seq.len() < 20 {
+                Ok((record, Vec::new()))
+            } else {
+                let genes = predicted.next().with_context(|| {
+                    format!("missing Prodigal batch result for sequence {}", record.id)
+                })?;
+                Ok((record, genes))
+            }
+        })
+        .collect()
 }
 
 /// Extract a subsequence from DNA, reverse-complementing if on reverse strand.

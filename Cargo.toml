@@ -1,6 +1,6 @@
 [package]
 name = "gecco"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Gene Cluster prediction with Conditional Random Fields"
 license = "GPL-3.0-or-later"
@@ -74,7 +74,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 indicatif = { version = "0.18", optional = true }
 
 # Utility
-rayon = "1.10"
+rayon = "1.12"
 rand = "0.9"
 anyhow = "1"
 md5 = "0.8"
@@ -85,7 +85,7 @@ thiserror = "2"
 regex-lite = "0.1"
 
 # Gene finding
-prodigal-rs = "0.3"
+prodigal-rs = "0.3.4"
 
 # HMMER
 hmmer = { package = "hmmer-pure-rs", version = "0.7" }
