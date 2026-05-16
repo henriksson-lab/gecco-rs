@@ -1,4 +1,4 @@
-//! HMMER domain annotation module.
+//! Compatibility wrapper for HMMER profiles and search results.
 //!
 //! Runs hmmsearch against HMM profile databases to annotate genes with
 //! protein domains. Uses the pure-Rust hmmer crate as backend.
@@ -16,7 +16,7 @@ use log::{debug, info};
 use crate::interpro::InterPro;
 use crate::model::{Domain, Gene};
 
-/// Metadata for an HMM library (loaded from .ini config).
+/// A Hidden Markov Model library to use with `PyHMMER`.
 #[derive(Debug, Clone)]
 pub struct HMM {
     pub id: String,
@@ -72,9 +72,11 @@ impl HMM {
         })
     }
 
-    /// Relabel a domain accession according to the relabeling rule.
+    /// Rename a domain obtained by this HMM to the right accession.
     ///
-    /// For example, Pfam uses `s/(PF\d+).\d+/\1/` to strip version suffixes.
+    /// This method can be used with HMM libraries that have separate HMMs
+    /// for the same domain, such as Pfam. For example, Pfam uses
+    /// `s/(PF\d+).\d+/\1/` to strip version suffixes.
     pub fn relabel(&self, domain: &str) -> String {
         match &self.relabel_with {
             Some(pattern) => {
@@ -100,10 +102,19 @@ impl HMM {
     }
 }
 
-/// Trait for domain annotation backends.
+/// An abstract trait for annotating genes with protein domains.
 pub trait DomainAnnotator {
-    /// Annotate genes with protein domains. Domains are appended to
-    /// each gene's `protein.domains` list.
+    /// Run annotation on proteins of `genes` and update their domains.
+    ///
+    /// # Arguments
+    ///
+    /// * `genes` — Genes to annotate; domains are appended to each gene's
+    ///   `protein.domains` list.
+    /// * `interpro` — InterPro metadata used to attach GO terms and human-
+    ///   readable function names to each hit.
+    /// * `progress` — Optional progress callback of signature
+    ///   `progress(current_hmm, total_hmms)`, called as profiles are
+    ///   processed.
     fn run(
         &self,
         genes: &mut [Gene],
@@ -118,7 +129,7 @@ pub struct LoadedHMM {
     pub profiles: Vec<hmmer::Hmm>,
 }
 
-/// Domain annotator using the pure-Rust hmmer crate.
+/// A domain annotator that uses the pure-Rust `hmmer` crate.
 pub struct PyHMMER {
     pub hmm: HMM,
     pub cpus: Option<usize>,
@@ -127,6 +138,15 @@ pub struct PyHMMER {
 }
 
 impl PyHMMER {
+    /// Prepare a new HMMER annotation handler with the given `hmm`.
+    ///
+    /// # Arguments
+    ///
+    /// * `hmm` — Metadata describing the HMM library to search against.
+    ///
+    /// Use `with_cpus` to set the number of CPUs to allocate for
+    /// `hmmsearch`, and `with_whitelist` to restrict annotation to a subset
+    /// of the HMMs in the file.
     pub fn new(hmm: HMM) -> Self {
         Self {
             hmm,
@@ -364,6 +384,7 @@ impl PyHMMER {
 }
 
 impl DomainAnnotator for PyHMMER {
+    /// Run annotation on proteins of `genes` and update their domains.
     fn run(
         &self,
         genes: &mut [Gene],

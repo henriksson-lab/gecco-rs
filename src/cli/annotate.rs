@@ -1,4 +1,5 @@
-//! The `gecco annotate` subcommand — domain annotation only.
+//! Implementation of the `gecco annotate` subcommand — runs HMMER domain
+//! annotation on a genome file and writes the resulting feature table.
 
 use std::path::PathBuf;
 
@@ -65,6 +66,10 @@ pub struct AnnotateArgs {
 }
 
 impl AnnotateArgs {
+    /// Run the `gecco annotate` subcommand: predict ORFs from the input
+    /// genome, run HMMER over each configured database, optionally
+    /// disentangle/filter the resulting domains, then write the gene and
+    /// feature tables to the output directory.
     pub fn execute(&self) -> Result<()> {
         let base = self
             .genome

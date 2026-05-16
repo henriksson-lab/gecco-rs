@@ -1,10 +1,10 @@
-//! Cluster refinement: extract contiguous gene clusters from CRF predictions.
+//! Algorithm to smooth contiguous gene cluster predictions into single regions.
 
 use std::collections::HashSet;
 
 use crate::model::{Cluster, Gene};
 
-/// Pfam domains considered 'biosynthetic' by AntiSMASH.
+/// A set of domains from Pfam considered 'biosynthetic' by AntiSMASH.
 pub static BIO_PFAMS: &[&str] = &[
     "PF00109", "PF02801", "PF08659", "PF00378", "PF08541", "PF08545", "PF02803", "PF00108",
     "PF02706", "PF03364", "PF08990", "PF00501", "PF00668", "PF08415", "PF00975", "PF03061",
@@ -29,7 +29,30 @@ fn bio_pfams_set() -> HashSet<&'static str> {
     BIO_PFAMS.iter().copied().collect()
 }
 
-/// Post-processor to extract contiguous clusters from CRF predictions.
+/// A post-processor to extract contiguous clusters from CRF predictions.
+///
+/// # Fields
+///
+/// * `threshold` — The probability threshold to use to consider a protein
+///   to be part of a gene cluster.
+/// * `criterion` — The criterion to use when checking for cluster validity
+///   (`"gecco"` or `"antismash"`).
+/// * `n_cds` — The minimum number of genes a gene cluster must contain to be
+///   considered valid. If `criterion` is `"gecco"`, this is the minimum
+///   number of **annotated** CDS.
+/// * `n_biopfams` — The minimum number of biosynthetic Pfam domains a gene
+///   cluster must contain to be considered valid (*only when the criterion
+///   is* `"antismash"`).
+/// * `average_threshold` — The average probability threshold used to consider
+///   a gene cluster valid (*only when the criterion is* `"antismash"`).
+/// * `edge_distance` — The minimum distance from the edge the gene cluster
+///   must be located (it may start at an edge, but must span for longer than
+///   `edge_distance`), in number of annotated genes (*only when the criterion
+///   is* `"gecco"`).
+/// * `trim` — If `true` (the default), raw segments predicted by the
+///   `ClusterCRF` will be post-processed to exclude genes on cluster edges
+///   which have no domain annotation. Set to `false` to retain all genes as
+///   predicted by the CRF.
 pub struct ClusterRefiner {
     pub threshold: f64,
     pub criterion: String,
@@ -55,7 +78,17 @@ impl Default for ClusterRefiner {
 }
 
 impl ClusterRefiner {
-    /// Find all valid clusters in a list of genes with probability annotations.
+    /// Find all clusters in a table of CRF predictions.
+    ///
+    /// # Arguments
+    ///
+    /// * `genes` — A list of genes with probability annotations estimated by
+    ///   `ClusterCRF`.
+    ///
+    /// # Returns
+    ///
+    /// All valid clusters found in the input with respect to the
+    /// postprocessing criterion given at initialisation.
     pub fn iter_clusters(&self, genes: &[Gene]) -> Vec<Cluster> {
         let mut results = Vec::new();
         for (seq_genes, cluster) in self.raw_clusters(genes) {
@@ -71,6 +104,7 @@ impl ClusterRefiner {
         results
     }
 
+    /// Iterate over contiguous cluster segments from a list of genes.
     fn raw_clusters(&self, genes: &[Gene]) -> Vec<(Vec<Gene>, Cluster)> {
         // Group genes by source sequence
         let mut by_source: std::collections::BTreeMap<&str, Vec<&Gene>> =
@@ -131,6 +165,7 @@ impl ClusterRefiner {
         results
     }
 
+    /// Remove unannotated proteins from the cluster edges.
     fn trim_cluster(&self, mut cluster: Cluster) -> Cluster {
         while !cluster.genes.is_empty() && cluster.genes[0].protein.domains.is_empty() {
             cluster.genes.remove(0);
@@ -142,6 +177,7 @@ impl ClusterRefiner {
         cluster
     }
 
+    /// Check a cluster validity depending on the postprocessing criterion.
     fn validate_cluster(&self, seq: &[Gene], cluster: &Cluster) -> bool {
         if cluster.genes.is_empty() {
             return false;

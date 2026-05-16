@@ -1,4 +1,4 @@
-//! CRF-based gene cluster prediction.
+//! Gene cluster prediction using a conditional random field.
 
 pub mod backend;
 pub mod features;
@@ -31,7 +31,8 @@ pub trait CrfModel: Send + Sync {
     fn fit(&mut self, x: &[Vec<Vec<String>>], y: &[Vec<String>]) -> Result<()>;
 }
 
-/// Wrapper for CRF-based cluster prediction.
+/// A wrapper for a `sklearn_crfsuite.CRF`-compatible model that works with
+/// the GECCO data model.
 pub struct ClusterCRF {
     pub feature_type: String,
     pub window_size: usize,
@@ -41,6 +42,15 @@ pub struct ClusterCRF {
 }
 
 impl ClusterCRF {
+    /// Create a new `ClusterCRF` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `feature_type` — Defines how features should be extracted. Should
+    ///   be either `"domain"` or `"protein"`.
+    /// * `window_size` — The size of the sliding window to use when training
+    ///   and predicting probabilities on sequences of genes.
+    /// * `window_step` — The step between consecutive sliding windows.
     pub fn new(feature_type: &str, window_size: usize, window_step: usize) -> Self {
         Self {
             feature_type: feature_type.to_string(),
@@ -55,7 +65,25 @@ impl ClusterCRF {
         self.model = Some(model);
     }
 
-    /// Predict cluster probabilities for each gene.
+    /// Predict how likely each given gene is part of a gene cluster.
+    ///
+    /// # Arguments
+    ///
+    /// * `genes` — The genes to compute probabilities for.
+    /// * `pad` — Whether to pad sequences too small for a single window.
+    ///   Setting this to `false` will skip probability prediction entirely
+    ///   for sequences smaller than the window size.
+    /// * `progress` — An optional callback receiving `(current_window,
+    ///   total_windows)` as work progresses.
+    ///
+    /// # Returns
+    ///
+    /// A list of new `Gene` objects with their probability set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying CRF model has not been fitted or
+    /// loaded yet.
     pub fn predict_probabilities(
         &self,
         genes: &[Gene],
@@ -191,7 +219,13 @@ impl ClusterCRF {
         Ok(predicted)
     }
 
-    /// Fit the CRF model to training data.
+    /// Fit the CRF model to the given training data.
+    ///
+    /// # Arguments
+    ///
+    /// * `genes` — The genes to extract domains from for training the CRF.
+    /// * `shuffle` — Whether to shuffle the contigs after having grouped the
+    ///   genes together.
     pub fn fit(&mut self, genes: &[Gene], shuffle: bool) -> Result<()> {
         let model = self
             .model

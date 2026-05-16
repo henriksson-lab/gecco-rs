@@ -1,8 +1,14 @@
-//! Shared utility functions.
+//! Shared utility helpers, mirroring the small grab-bag in
+//! `gecco/_meta.py`.
 
 use std::ops::Range;
 
-/// Iterate with a sliding window over a sequence of given length.
+/// Iterate over a sequence of length `length` with a sliding window of
+/// width `window` and stride `step`.
+///
+/// # Panics
+///
+/// Panics if `window` is zero, or if `step` is zero or larger than `window`.
 pub fn sliding_window(length: usize, window: usize, step: usize) -> Vec<Range<usize>> {
     assert!(window > 0, "Window size must be strictly positive");
     assert!(

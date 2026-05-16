@@ -19,6 +19,15 @@ pub struct ClusterType {
 }
 
 impl ClusterType {
+    /// Create a new product type from one or more base types.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let t1 = ClusterType::unknown();                              // unknown type
+    /// let t2 = ClusterType::new(["Polyketide"]);                    // single type
+    /// let t3 = ClusterType::new(["Polyketide", "NRP"]);             // multiple types
+    /// ```
     pub fn new(names: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
             names: names.into_iter().map(Into::into).collect(),
@@ -35,7 +44,17 @@ impl ClusterType {
         self.names.is_empty()
     }
 
-    /// Unpack a composite type into individual single types.
+    /// Unpack a composite `ClusterType` into a list of individual types.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let ty = ClusterType::new(["Polyketide", "Saccharide"]);
+    /// assert_eq!(
+    ///     ty.unpack(),
+    ///     vec![ClusterType::new(["Polyketide"]), ClusterType::new(["Saccharide"])],
+    /// );
+    /// ```
     pub fn unpack(&self) -> Vec<ClusterType> {
         self.names
             .iter()
@@ -66,7 +85,7 @@ impl fmt::Display for ClusterType {
 // Strand
 // ---------------------------------------------------------------------------
 
-/// DNA strand on which a gene is located.
+/// A flag to declare on which DNA strand a gene is located.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Strand {
     Coding,
@@ -74,6 +93,7 @@ pub enum Strand {
 }
 
 impl Strand {
+    /// The strand as a single sign (`+` or `-`).
     pub fn sign(&self) -> &'static str {
         match self {
             Strand::Coding => "+",
@@ -104,33 +124,51 @@ impl Strand {
 /// A conserved region within a protein.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Domain {
+    /// The accession of the protein domain in the source HMM.
     pub name: String,
-    /// Start coordinate within protein (1-based, inclusive).
+    /// The start coordinate of the domain within the protein sequence
+    /// (first amino-acid at 1).
     pub start: i64,
-    /// End coordinate within protein (inclusive).
+    /// The end coordinate of the domain within the protein sequence
+    /// (inclusive).
     pub end: i64,
-    /// HMM library name (e.g. "Pfam").
+    /// The name of the HMM library this domain belongs to (e.g. `Pfam`,
+    /// `Panther`).
     pub hmm: String,
-    /// Independent e-value from hmmsearch.
+    /// The independent e-value reported by `hmmsearch`, measuring how
+    /// reliable the domain annotation is.
     pub i_evalue: f64,
-    /// P-value from hmmsearch.
+    /// The p-value reported by `hmmsearch`, measuring how likely the
+    /// domain score is.
     pub pvalue: f64,
-    /// Probability of being part of a gene cluster (None if not yet predicted).
+    /// The probability that this domain is part of a gene cluster, or
+    /// `None` if no prediction has been made yet.
     pub probability: Option<f64>,
-    /// Cluster weight from CRF state features.
+    /// The weight for this domain, measuring its importance as inferred
+    /// from the training clusters by the CRF model.
     pub cluster_weight: Option<f64>,
+    /// The Gene Ontology terms for this particular domain.
     pub go_terms: Vec<GOTerm>,
+    /// The Gene Ontology term families for this particular domain.
+    ///
+    /// Term families are extracted by taking the highest superclasses
+    /// (excluding the root) of each Gene Ontology term in the
+    /// `molecular_function` namespace associated with this domain.
     pub go_functions: Vec<GOTerm>,
+    /// Feature qualifiers added to the GenBank `misc_feature` built from
+    /// this `Domain`.
     pub qualifiers: BTreeMap<String, Vec<String>>,
 }
 
 impl Domain {
+    /// Copy the current domain and assign it a cluster probability.
     pub fn with_probability(&self, probability: Option<f64>) -> Domain {
         let mut d = self.clone();
         d.probability = probability;
         d
     }
 
+    /// Copy the current domain and assign it a cluster weight.
     pub fn with_cluster_weight(&self, cluster_weight: Option<f64>) -> Domain {
         let mut d = self.clone();
         d.cluster_weight = cluster_weight;
@@ -145,8 +183,11 @@ impl Domain {
 /// A sequence of amino-acids translated from a gene.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Protein {
+    /// The identifier of the protein.
     pub id: String,
+    /// The sequence of amino-acids of this protein.
     pub seq: String,
+    /// A list of domains found in the protein sequence.
     pub domains: Vec<Domain>,
 }
 
@@ -159,6 +200,7 @@ impl Protein {
         }
     }
 
+    /// Copy the current protein and assign it a new sequence.
     pub fn with_seq(&self, seq: String) -> Protein {
         Protein {
             id: self.id.clone(),
@@ -167,6 +209,7 @@ impl Protein {
         }
     }
 
+    /// Copy the current protein and assign it new domains.
     pub fn with_domains(&self, domains: Vec<Domain>) -> Protein {
         Protein {
             id: self.id.clone(),
@@ -183,25 +226,34 @@ impl Protein {
 /// A nucleotide sequence coding a protein.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gene {
-    /// Source sequence identifier.
+    /// The identifier of the DNA sequence this gene was found in.
     pub source_id: String,
-    /// Start coordinate within source (1-based, inclusive).
+    /// The index of the leftmost nucleotide of the gene within the source
+    /// sequence, independent of the strandedness.
     pub start: i64,
-    /// End coordinate within source (inclusive).
+    /// The index of the rightmost nucleotide of the gene within the source
+    /// sequence.
     pub end: i64,
+    /// The strand where the gene is located.
     pub strand: Strand,
+    /// The protein translated from this gene.
     pub protein: Protein,
+    /// Feature qualifiers added to the GenBank `CDS` feature built from
+    /// this `Gene`.
     pub qualifiers: BTreeMap<String, Vec<String>>,
-    /// Override probability (takes precedence over domain-derived probability).
+    /// Per-gene cluster probability override; if set, takes precedence over
+    /// per-domain probabilities when computing `average_probability` and
+    /// `maximum_probability`.
     pub probability: Option<f64>,
 }
 
 impl Gene {
+    /// The identifier of the gene (same as the protein identifier).
     pub fn id(&self) -> &str {
         &self.protein.id
     }
 
-    /// Average of domain probabilities (or override if set).
+    /// The average of domain probabilities of being in a cluster.
     pub fn average_probability(&self) -> Option<f64> {
         if let Some(p) = self.probability {
             return Some(p);
@@ -219,7 +271,7 @@ impl Gene {
         }
     }
 
-    /// Highest domain probability (or override if set).
+    /// The highest of domain probabilities of being in a cluster.
     pub fn maximum_probability(&self) -> Option<f64> {
         if let Some(p) = self.probability {
             return Some(p);
@@ -231,7 +283,7 @@ impl Gene {
             .fold(None, |acc, p| Some(acc.map_or(p, |a: f64| a.max(p))))
     }
 
-    /// Gene functions from GO term annotations.
+    /// Predict the function(s) of the gene from its domain annotations.
     pub fn functions(&self) -> HashSet<String> {
         let mut fns: HashSet<String> = self
             .protein
@@ -245,6 +297,7 @@ impl Gene {
         fns
     }
 
+    /// Copy the current gene and assign it a different protein.
     pub fn with_protein(&self, protein: Protein) -> Gene {
         Gene {
             source_id: self.source_id.clone(),
@@ -257,6 +310,7 @@ impl Gene {
         }
     }
 
+    /// Copy the current gene and assign it a different probability.
     pub fn with_probability(&self, probability: f64) -> Gene {
         let new_domains: Vec<Domain> = self
             .protein
@@ -303,16 +357,22 @@ fn statistics_mean(values: &[f64]) -> f64 {
 // Cluster
 // ---------------------------------------------------------------------------
 
-/// A sequence of contiguous genes forming a putative BGC.
+/// A sequence of contiguous genes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cluster {
+    /// The identifier of the gene cluster.
     pub id: String,
+    /// A list of the genes belonging to this gene cluster.
     pub genes: Vec<Gene>,
+    /// The putative type of this gene cluster, according to similarity in
+    /// domain composition with curated clusters.
     pub cluster_type: Option<ClusterType>,
+    /// The probability with which each cluster type was identified.
     pub type_probabilities: BTreeMap<String, f64>,
 }
 
 impl Cluster {
+    /// Create a new cluster from a list of contiguous genes.
     pub fn new(id: impl Into<String>, genes: Vec<Gene>) -> Self {
         Self {
             id: id.into(),
@@ -322,18 +382,22 @@ impl Cluster {
         }
     }
 
+    /// The identifier of the sequence this cluster was found in.
     pub fn source_id(&self) -> &str {
         &self.genes[0].source_id
     }
 
+    /// The start of this cluster in the source sequence.
     pub fn start(&self) -> i64 {
         self.genes.iter().map(|g| g.start).min().unwrap_or(0)
     }
 
+    /// The end of this cluster in the source sequence.
     pub fn end(&self) -> i64 {
         self.genes.iter().map(|g| g.end).max().unwrap_or(0)
     }
 
+    /// The average of protein probabilities of being biosynthetic.
     pub fn average_probability(&self) -> Option<f64> {
         let probas: Vec<f64> = self
             .genes
@@ -347,6 +411,7 @@ impl Cluster {
         }
     }
 
+    /// The highest of protein probabilities of being biosynthetic.
     pub fn maximum_probability(&self) -> Option<f64> {
         self.genes
             .iter()
@@ -354,7 +419,24 @@ impl Cluster {
             .fold(None, |acc, p| Some(acc.map_or(p, |a: f64| a.max(p))))
     }
 
-    /// Compute weighted domain composition vector.
+    /// Compute weighted domain composition with respect to `all_possible`.
+    ///
+    /// # Arguments
+    ///
+    /// * `all_possible` — A sequence containing all domain names to consider
+    ///   when computing domain composition for the cluster. If `None`, only
+    ///   domains within the cluster are taken into account.
+    /// * `normalize` — Normalize the composition vector so that it sums to 1.
+    /// * `minlog_weights` — Compute the weight for each domain as
+    ///   `-log10(v)` (where `v` is either the p-value or the i-evalue,
+    ///   depending on `use_pvalue`). Otherwise compute it as `1 - v`.
+    /// * `use_pvalue` — Compute composition weights using the p-value of each
+    ///   domain, instead of the i-evalue.
+    ///
+    /// # Returns
+    ///
+    /// A numerical vector containing the relative domain composition of the
+    /// gene cluster.
     pub fn domain_composition(
         &self,
         all_possible: Option<&[String]>,

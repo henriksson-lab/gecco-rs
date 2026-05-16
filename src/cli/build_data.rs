@@ -1,4 +1,10 @@
-//! The `gecco build-data` subcommand — download HMM databases and data files.
+//! Implementation of the `gecco build-data` subcommand — downloads the
+//! Pfam HMM database, the InterPro metadata, and the trained CRF model
+//! into the configured data directory.
+//!
+//! This is the Rust counterpart of Python's `setup.py build_data`, made
+//! into a regular CLI subcommand so end-users don't need a Python build
+//! environment to fetch the bundled assets.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -24,6 +30,10 @@ pub struct BuildDataArgs {
 }
 
 impl BuildDataArgs {
+    /// Download the Pfam HMM database, InterPro metadata, and the trained
+    /// CRF model into the configured data directory.
+    ///
+    /// Skips any file that is already present unless `--force` is passed.
     pub fn execute(&self) -> Result<()> {
         let output_dir = self
             .output_dir
@@ -158,6 +168,10 @@ fn copy_local_data_file(
     Ok(())
 }
 
+/// Download a single HMM database to disk, retrying alternate URLs and
+/// validating the MD5 checksum against the expected value.
+///
+/// Counterpart of `setup.py build_data.download_hmm` in Python GECCO.
 fn download_hmm(
     id: &str,
     output: &Path,
@@ -290,6 +304,9 @@ fn download_and_decompress_hmm_filter(url: &str, output: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Compute the MD5 hexdigest of a file's contents.
+///
+/// Counterpart of `setup.py build_data._checksum`.
 fn md5_file(path: &Path) -> Result<String> {
     let data = std::fs::read(path)?;
     Ok(format!("{:x}", md5::compute(&data)))

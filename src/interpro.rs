@@ -1,10 +1,10 @@
-//! InterPro metadata for domain annotations.
+//! Simple data classes to expose embedded InterPro data.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-/// A single Gene Ontology term.
+/// A single term from the Gene Ontology.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GOTerm {
     pub accession: String,
@@ -33,7 +33,7 @@ pub struct GOFunctionRef {
     pub name: String,
 }
 
-/// A subset of the InterPro database.
+/// A subset of the InterPro database exposing domain metadata.
 pub struct InterPro {
     pub entries: Vec<InterProEntry>,
     /// Maps member accessions → InterPro entry index.
@@ -41,7 +41,9 @@ pub struct InterPro {
 }
 
 impl InterPro {
-    /// Load InterPro metadata from a JSON byte slice.
+    /// Load InterPro metadata from a JSON byte slice (analogous to
+    /// `InterPro.load` in the Python implementation, which reads the
+    /// bundled `interpro.json` resource).
     pub fn from_json(data: &[u8]) -> anyhow::Result<Self> {
         let entries: Vec<InterProEntry> = serde_json::from_slice(data)?;
         let mut by_accession = HashMap::new();

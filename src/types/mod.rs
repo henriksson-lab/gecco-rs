@@ -11,17 +11,18 @@ use anyhow::{Context, Result};
 use crate::model::{Cluster, ClusterType};
 use crate::sklearn_rf;
 
-/// A binarizer that converts between ClusterType and binary vectors.
+/// A `MultiLabelBinarizer` working with `ClusterType` instances.
 pub struct TypeBinarizer {
     pub classes: Vec<String>,
 }
 
 impl TypeBinarizer {
+    /// Create a new binarizer for the given (ordered) set of class labels.
     pub fn new(classes: Vec<String>) -> Self {
         Self { classes }
     }
 
-    /// Convert a list of ClusterType into a binary matrix.
+    /// Convert a list of `ClusterType` into a binary matrix.
     pub fn transform(&self, types: &[ClusterType]) -> Vec<Vec<f64>> {
         types
             .iter()
@@ -34,7 +35,7 @@ impl TypeBinarizer {
             .collect()
     }
 
-    /// Convert a binary matrix back to ClusterType instances.
+    /// Convert a binary matrix back to `ClusterType` instances.
     pub fn inverse_transform(&self, matrix: &[Vec<bool>]) -> Vec<ClusterType> {
         matrix
             .iter()
@@ -60,7 +61,7 @@ pub trait RandomForestModel: Send + Sync {
     fn predict_proba(&self, x: &[Vec<f64>]) -> Result<Vec<Vec<f64>>>;
 }
 
-/// Classifier that predicts cluster biosynthetic types.
+/// A wrapper that predicts the type of a `Cluster`.
 pub struct TypeClassifier {
     pub binarizer: TypeBinarizer,
     pub domains: Vec<String>,
@@ -68,6 +69,10 @@ pub struct TypeClassifier {
 }
 
 impl TypeClassifier {
+    /// Instantiate a new type classifier.
+    ///
+    /// The internal random-forest model must be supplied separately via
+    /// `set_model` (or loaded from disk through `train_sklearn_rf_from_path`).
     pub fn new(classes: Vec<String>) -> Self {
         Self {
             binarizer: TypeBinarizer::new(classes),
@@ -121,7 +126,9 @@ impl TypeClassifier {
         model.fit(compositions, &labels)
     }
 
-    /// Predict types for given clusters, mutating them in place.
+    /// Predict types for each of the given clusters, mutating them in place
+    /// to record both the predicted `ClusterType` and the per-class
+    /// probabilities.
     pub fn predict_types(&self, clusters: &mut [Cluster]) -> Result<()> {
         let model = self
             .model

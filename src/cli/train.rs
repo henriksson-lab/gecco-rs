@@ -1,4 +1,5 @@
-//! The `gecco train` subcommand — train a new CRF model.
+//! Implementation of the `gecco train` subcommand — trains a new CRF
+//! model from an annotated gene table.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -72,6 +73,9 @@ pub struct TrainArgs {
 }
 
 impl TrainArgs {
+    /// Run the `gecco train` subcommand: build training instances from the
+    /// labelled input genes, fit the CRF backend, and write the trained
+    /// model (plus checksum) into the output directory.
     pub fn execute(&self) -> Result<()> {
         std::fs::create_dir_all(&self.output_dir)?;
 

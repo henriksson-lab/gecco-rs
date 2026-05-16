@@ -1,4 +1,6 @@
-//! The `gecco predict` subcommand — predict from pre-annotated features.
+//! Implementation of the `gecco predict` subcommand — runs CRF prediction
+//! and cluster extraction starting from a pre-annotated feature/gene table
+//! (skipping ORF finding and HMMER).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -87,6 +89,9 @@ pub struct PredictArgs {
 }
 
 impl PredictArgs {
+    /// Run the `gecco predict` subcommand: load genes and feature
+    /// annotations from disk, run the CRF to assign cluster probabilities,
+    /// then extract and classify clusters.
     pub fn execute(&self) -> Result<()> {
         let base = self
             .genome

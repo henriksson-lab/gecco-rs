@@ -1,4 +1,5 @@
-//! The `gecco convert` subcommand — format conversion.
+//! Implementation of the `gecco convert` subcommand — converts cluster
+//! GenBank files into other formats (GFF3, BiG-SLiCE input, FASTA).
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -70,6 +71,8 @@ pub struct ConvertClustersArgs {
 }
 
 impl ConvertArgs {
+    /// Dispatch on the convert sub-format and write the corresponding
+    /// output (GFF3, FASTA, BiG-SLiCE input).
     pub fn execute(&self) -> Result<()> {
         match &self.command {
             ConvertCommand::Gbk(args) => convert_gbk(args),
@@ -78,6 +81,10 @@ impl ConvertArgs {
     }
 }
 
+/// Convert per-cluster GenBank files into FASTA (FNA or FAA).
+///
+/// Counterpart of Python's `_convert_gbk_fna` helper, generalised to also
+/// emit amino-acid FASTA for downstream tools.
 fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
     let out_dir = args.output_dir.as_ref().unwrap_or(&args.input_dir);
     std::fs::create_dir_all(out_dir)?;
@@ -188,6 +195,9 @@ fn convert_gbk(args: &ConvertGbkArgs) -> Result<()> {
     Ok(())
 }
 
+/// Convert clusters into a single GFF3 (or BiG-SLiCE) file.
+///
+/// Counterpart of Python's `_convert_clusters_gff` helper.
 fn convert_clusters(args: &ConvertClustersArgs) -> Result<()> {
     let out_dir = args.output_dir.as_ref().unwrap_or(&args.input_dir);
     std::fs::create_dir_all(out_dir)?;

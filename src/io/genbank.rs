@@ -1,4 +1,8 @@
 //! GenBank I/O for reading input genomes and writing annotated cluster records.
+//!
+//! Includes the equivalents of the Python `Cluster.to_seq_record`,
+//! `Gene.to_seq_feature`, and `Domain.to_seq_feature` helpers, all
+//! consolidated into the writer functions below.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -61,7 +65,11 @@ pub fn read_genbank(reader: impl Read) -> Result<Vec<SeqRecord>> {
     Ok(records)
 }
 
-/// Auto-detect format and read sequences.
+/// Load sequences from a genomic input file.
+///
+/// Automatically detects FASTA vs GenBank format from the leading character
+/// of the file, transparently decompressing common formats (gzip, etc.) via
+/// `compression::zopen_path`.
 pub fn read_sequences(path: &std::path::Path) -> Result<Vec<SeqRecord>> {
     let reader = crate::io::compression::zopen_path(path)?;
     let mut buf = Vec::new();
@@ -123,7 +131,12 @@ fn gene_color(gene: &Gene) -> GeneColor {
 // Writing — Cluster to GenBank
 // ---------------------------------------------------------------------------
 
-/// Convert a Cluster to a gb-io Seq record for GenBank output.
+/// Convert the cluster to a single GenBank record.
+///
+/// Annotations of the source sequence are kept intact if they don't overlap
+/// with the cluster boundaries. Component genes are added on the record as
+/// *CDS* features, while annotated protein domains are added as
+/// *misc_feature*.
 ///
 /// The record contains:
 /// - LOCUS, DEFINITION, ACCESSION, VERSION
@@ -351,7 +364,8 @@ fn build_gecco_comment(cluster: &Cluster, version: &str) -> String {
     lines.join("\n")
 }
 
-/// Convert gene genomic coordinates to a gb-io Location, offset by cluster start.
+/// Convert gene genomic coordinates to a gb-io Location, offset by cluster
+/// start. Counterpart of Python `Gene.to_seq_feature`'s coordinate handling.
 fn gene_location(gene: &Gene, offset: i64) -> Location {
     // gb-io uses 0-based exclusive-end coordinates
     let start = gene.start - 1 - offset;
@@ -363,8 +377,9 @@ fn gene_location(gene: &Gene, offset: i64) -> Location {
     }
 }
 
-/// Convert domain coordinates (protein-relative, 1-based) to nucleotide
-/// location in cluster coordinates.
+/// Convert domain coordinates (protein-relative, 1-based) to a nucleotide
+/// location in cluster coordinates. Counterpart of Python
+/// `Domain.to_seq_feature` with `protein_coordinates=False`.
 fn domain_location(gene: &Gene, domain: &Domain, cluster_offset: i64) -> Location {
     let gene_start = gene.start - 1 - cluster_offset; // 0-based in cluster
     match gene.strand {

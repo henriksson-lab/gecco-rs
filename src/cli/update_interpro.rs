@@ -35,6 +35,10 @@ pub struct UpdateInterProArgs {
 }
 
 impl UpdateInterProArgs {
+    /// Rebuild the bundled `interpro.json` metadata from the upstream
+    /// InterPro XML dump and Gene Ontology OBO file.
+    ///
+    /// Counterpart of `setup.py update_interpro` in Python GECCO.
     pub fn execute(&self) -> Result<()> {
         let output_dir = self
             .output_dir

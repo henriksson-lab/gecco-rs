@@ -1,9 +1,12 @@
-//! Feature extraction and probability annotation for the CRF.
+//! Features extraction and sanitization utilities for `ClusterCRF`.
 
 use crate::model::Gene;
 
-/// Extract features at the gene (protein) level.
-/// Each gene produces one ordered feature list; duplicate domains are merged.
+/// Extract features at the gene level.
+///
+/// If several domains are part of the same gene, they are grouped at the
+/// same position. Genes without domain annotation produce an empty list
+/// of features.
 pub fn extract_features_protein(genes: &[Gene]) -> Vec<Vec<String>> {
     genes
         .iter()
@@ -20,7 +23,9 @@ pub fn extract_features_protein(genes: &[Gene]) -> Vec<Vec<String>> {
 }
 
 /// Extract features at the domain level.
-/// Each domain produces its own feature list; unannotated genes get an empty list.
+///
+/// Each domain produces its own feature list; unannotated genes still emit
+/// one empty feature list (matching Python's `empty=True` default).
 pub fn extract_features_domain(genes: &[Gene]) -> Vec<Vec<String>> {
     let mut features = Vec::new();
     for gene in genes {
@@ -35,7 +40,7 @@ pub fn extract_features_domain(genes: &[Gene]) -> Vec<Vec<String>> {
     features
 }
 
-/// Extract labels at the protein level for training.
+/// Extract labels at the gene (protein) level for training.
 pub fn extract_labels_protein(genes: &[Gene]) -> Vec<String> {
     genes
         .iter()
@@ -74,7 +79,13 @@ pub fn extract_labels_domain(genes: &[Gene]) -> Vec<String> {
     labels
 }
 
-/// Annotate genes with CRF probabilities at the protein level.
+/// Annotate genes with marginals obtained from a CRF at the protein level.
+///
+/// # Arguments
+///
+/// * `genes` — The genes to annotate with probabilities.
+/// * `probabilities` — The biosynthetic probabilities computed by the CRF;
+///   must have the same length as `genes`.
 pub fn annotate_probabilities_protein(genes: &[Gene], probabilities: &[f64]) -> Vec<Gene> {
     genes
         .iter()
@@ -83,7 +94,7 @@ pub fn annotate_probabilities_protein(genes: &[Gene], probabilities: &[f64]) -> 
         .collect()
 }
 
-/// Annotate genes with CRF probabilities at the domain level.
+/// Annotate genes with marginals obtained from a CRF at the domain level.
 pub fn annotate_probabilities_domain(genes: &[Gene], probabilities: &[f64]) -> Vec<Gene> {
     let mut prob_iter = probabilities.iter();
     genes

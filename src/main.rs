@@ -1,6 +1,14 @@
+//! `gecco` command-line entry point.
+//!
+//! Parses CLI arguments, configures the logger, and dispatches to the
+//! appropriate subcommand implementation under [`gecco::cli`]. Counterpart
+//! of `gecco/cli/commands/__init__.py::main` in Python GECCO.
+
 use clap::Parser;
 use gecco::cli::{Cli, Commands};
 
+/// Run the GECCO CLI: parse args, set up logging, and dispatch to the
+/// selected subcommand. Returns the subcommand's `Result`.
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 

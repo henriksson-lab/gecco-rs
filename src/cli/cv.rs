@@ -1,4 +1,5 @@
-//! The `gecco cv` subcommand — cross-validation.
+//! Implementation of the `gecco cv` subcommand — runs cross-validation of
+//! the CRF model on the provided training set.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -82,6 +83,8 @@ pub struct CvArgs {
 }
 
 impl CvArgs {
+    /// Run k-fold (or leave-one-type-out) cross-validation on the input
+    /// gene table and dump per-fold prediction reports.
     pub fn execute(&self) -> Result<()> {
         let mode = if self.loto {
             "Leave-One-Type-Out".to_string()

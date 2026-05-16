@@ -1,4 +1,4 @@
-//! ORF finding: gene prediction from DNA sequences.
+//! Generic protocol for ORF detection in DNA sequences.
 //!
 //! Provides both Prodigal-based gene finding (via the `prodigal` crate) and
 //! extraction of existing CDS annotations from GenBank records.
@@ -19,12 +19,13 @@ pub struct SeqRecord {
     pub seq: String,
 }
 
-/// Trait for ORF finders.
+/// An abstract base trait providing a generic ORF finder.
 pub trait ORFFinder {
+    /// Find all genes from a DNA sequence.
     fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>>;
 }
 
-/// ORFFinder that extracts existing CDS annotations (analogous to CDSFinder).
+/// An `ORFFinder` that simply extracts CDS annotations from records.
 pub struct CDSFinder {
     pub feature: String,
     pub translation_table: u32,
@@ -41,12 +42,28 @@ impl Default for CDSFinder {
     }
 }
 
-/// Prodigal-based gene finder using the `prodigal` crate.
+/// An `ORFFinder` that uses the `prodigal-rs` bindings to Prodigal.
+///
+/// Prodigal is a fast and reliable protein-coding gene prediction for
+/// prokaryotic genomes, with support for draft genomes and metagenomes.
+///
+/// # References
+///
+/// Doug Hyatt, Gwo-Liang Chen, Philip F. LoCascio, Miriam L. Land,
+/// Frank W. Larimer and Loren J. Hauser. "Prodigal: Prokaryotic Gene
+/// Recognition and Translation Initiation Site Identification",
+/// BMC Bioinformatics 11 (8 March 2010), p119.
+/// <https://doi.org/10.1186/1471-2105-11-119>
 pub struct ProdigalFinder {
+    /// Whether or not to run Prodigal in metagenome mode (default `true`).
     pub metagenome: bool,
+    /// Whether or not to mask genes running across regions containing
+    /// unknown nucleotides (default `false`).
     pub mask: bool,
     pub closed_ends: bool,
     pub translation_table: Option<u8>,
+    /// The number of threads to use to run Prodigal in parallel. Pass `0`
+    /// to use the number of CPUs on the machine.
     pub cpus: usize,
     pub thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
@@ -65,6 +82,7 @@ impl Default for ProdigalFinder {
 }
 
 impl ORFFinder for ProdigalFinder {
+    /// Find all genes contained in a sequence of DNA records.
     fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
         self.find_genes_with_output(records, &StdioOutput)
     }

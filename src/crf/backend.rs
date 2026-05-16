@@ -26,7 +26,10 @@ pub struct CrfSuiteModel {
 }
 
 impl CrfSuiteModel {
-    /// Load a CRFsuite model from a file path.
+    /// Load a pre-trained CRFsuite model from a file path.
+    ///
+    /// Counterpart to the Python `ClusterCRF.trained(model_path)` classmethod,
+    /// which loads a frozen model produced by an earlier `save` call.
     pub fn from_file(path: &Path) -> Result<Self> {
         let data = std::fs::read(path)
             .with_context(|| format!("reading CRF model from {}", path.display()))?;
@@ -80,7 +83,10 @@ impl CrfSuiteModel {
         }
     }
 
-    /// Save the model to a file.
+    /// Save the model to an on-disk location.
+    ///
+    /// Models serialized at a given location can later be loaded from that
+    /// same location via `CrfSuiteModel::from_file`.
     pub fn save(&self, path: &Path) -> Result<()> {
         std::fs::write(path, &self.model_data)
             .with_context(|| format!("saving CRF model to {}", path.display()))

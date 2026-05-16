@@ -1,4 +1,11 @@
-//! TSV table I/O for FeatureTable, GeneTable, ClusterTable.
+//! TSV table I/O for `FeatureTable`, `GeneTable`, and `ClusterTable`.
+//!
+//! These tables are the Rust translation of GECCO's Polars-backed Python
+//! `Table` classes:
+//!
+//! * `FeatureTable` — condensed domain annotations from different genes.
+//! * `GeneTable` — gene coordinates and optional cluster probabilities.
+//! * `ClusterTable` — condensed information about predicted clusters.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -32,7 +39,7 @@ pub struct FeatureRow {
 pub struct FeatureTable;
 
 impl FeatureTable {
-    /// Write a feature table from genes.
+    /// Write a new feature table from an iterable of genes.
     pub fn write_from_genes(writer: impl Write, genes: &[Gene]) -> Result<()> {
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -59,7 +66,10 @@ impl FeatureTable {
         Ok(())
     }
 
-    /// Load genes from a feature table TSV.
+    /// Convert a feature table back into `Gene` objects.
+    ///
+    /// Since the source sequence cannot be reconstructed from the table,
+    /// each gene's protein sequence is left empty.
     pub fn read_to_genes(reader: impl Read) -> Result<Vec<Gene>> {
         let mut rdr = csv::ReaderBuilder::new()
             .delimiter(b'\t')
@@ -140,6 +150,7 @@ pub struct GeneRow {
 pub struct GeneTable;
 
 impl GeneTable {
+    /// Write a new gene table from an iterable of genes.
     pub fn write_from_genes(writer: impl Write, genes: &[Gene]) -> Result<()> {
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')
@@ -159,6 +170,10 @@ impl GeneTable {
         Ok(())
     }
 
+    /// Convert a gene table back into `Gene` objects.
+    ///
+    /// Since the source sequence cannot be reconstructed from the table,
+    /// each gene's protein sequence is left empty.
     pub fn read_to_genes(reader: impl Read) -> Result<Vec<Gene>> {
         let mut rdr = csv::ReaderBuilder::new()
             .delimiter(b'\t')
@@ -223,6 +238,7 @@ fn default_type() -> String {
 pub struct ClusterTable;
 
 impl ClusterTable {
+    /// Write a new cluster table from an iterable of clusters.
     pub fn write_from_clusters(writer: impl Write, clusters: &[Cluster]) -> Result<()> {
         let mut wtr = csv::WriterBuilder::new()
             .delimiter(b'\t')

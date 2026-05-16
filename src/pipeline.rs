@@ -58,21 +58,31 @@ pub struct GeccoResults {
 
 impl GeccoResults {
     /// Write the gene table (TSV) to a writer.
+    ///
+    /// Counterpart of the Python `write_genes_table` helper in
+    /// `cli/commands/_common.py`.
     pub fn write_gene_table(&self, writer: impl Write) -> Result<()> {
         GeneTable::write_from_genes(writer, &self.genes)
     }
 
     /// Write the feature/domain table (TSV) to a writer.
+    ///
+    /// Counterpart of the Python `write_feature_table` helper.
     pub fn write_feature_table(&self, writer: impl Write) -> Result<()> {
         FeatureTable::write_from_genes(writer, &self.genes)
     }
 
     /// Write the cluster table (TSV) to a writer.
+    ///
+    /// Counterpart of the Python `write_cluster_table` helper.
     pub fn write_cluster_table(&self, writer: impl Write) -> Result<()> {
         ClusterTable::write_from_clusters(writer, &self.clusters)
     }
 
     /// Write each cluster as a separate GenBank file in the given directory.
+    ///
+    /// Counterpart of the Python `write_clusters` helper (default
+    /// non-merged path).
     pub fn write_cluster_gbks(&self, dir: &Path) -> Result<()> {
         for cluster in &self.clusters {
             let path = dir.join(format!("{}.gbk", cluster.id));
@@ -469,7 +479,10 @@ impl Gecco {
 
     // -- individual pipeline stages, exposed for advanced use --
 
-    /// Stage 1: Predict ORFs from DNA sequences.
+    /// Stage 1: predict ORFs from DNA sequences.
+    ///
+    /// Counterpart of the Python `extract_genes` helper in
+    /// `cli/commands/_common.py`.
     pub fn find_genes(&self, records: &[SeqRecord]) -> Result<Vec<Gene>> {
         self.find_genes_with_output(records, &StdioOutput)
     }

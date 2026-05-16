@@ -1,4 +1,6 @@
-//! The `gecco run` subcommand — full pipeline.
+//! Implementation of the `gecco run` subcommand — the full pipeline: gene
+//! finding → domain annotation → CRF prediction → cluster extraction →
+//! type classification → output writing.
 
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -105,6 +107,10 @@ pub struct RunArgs {
 }
 
 impl RunArgs {
+    /// Run the full `gecco run` pipeline end-to-end: load input sequences,
+    /// predict genes, annotate domains, predict cluster probabilities with
+    /// the CRF, extract and classify clusters, then write all output
+    /// tables (genes, features, clusters) and per-cluster GenBank files.
     pub fn execute(&self) -> Result<()> {
         let base = self
             .genome
